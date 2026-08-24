@@ -1,0 +1,5 @@
+{
+  "description": "Manually annotated centres of the four cross examples in source.png",
+  "centres": [[223.0, 294.0], [549.0, 296.0], [871.0, 298.0], [1195.0, 300.0]],
+  "tolerance_px": 12.0
+}
