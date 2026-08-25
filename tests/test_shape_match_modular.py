@@ -121,6 +121,7 @@ def test_estimate_contrast_thresholds_from_template_content() -> None:
     assert 1 <= strong_low < strong_high <= 255
     assert strong_low > weak_low
     assert strong_high > weak_high
+    assert weak_low / weak_high < strong_low / strong_high
     assert estimate_contrast_thresholds(np.zeros((20, 20), dtype=np.uint8)) == (3, 5)
 
 
@@ -140,5 +141,6 @@ def test_estimate_contrast_thresholds_resists_sparse_strong_overlay() -> None:
     edges = cv2.Canny(gray, low, high, apertureSize=3, L2gradient=True)
 
     assert 1 <= low < high <= 35
+    assert low >= round(high * 0.5)
     # The low-contrast horizontal arm must survive despite the stronger text.
     assert np.count_nonzero(edges[84:97, 20:231]) >= 100

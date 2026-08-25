@@ -20,6 +20,10 @@ from shape_match.types import (
 
 _CONTRAST_BLUR_KERNEL: tuple[int, int] = (5, 5)
 _CONTRAST_STRONG_PERCENTILE: float = 85.0
+_CONTRAST_LOW_RATIO_MIN: float = 0.40
+_CONTRAST_LOW_RATIO_MAX: float = 0.75
+_CONTRAST_LOW_RATIO_RAMP_START: float = 20.0
+_CONTRAST_LOW_RATIO_RAMP_END: float = 45.0
 
 
 def gradient_fields(gray: UInt8Image) -> tuple[FloatImage, FloatImage, FloatImage, FloatImage]:
@@ -65,10 +69,11 @@ def estimate_contrast_thresholds(template: np.ndarray) -> tuple[int, int]:
     A small Gaussian blur keeps JPEG noise and thin high-contrast overlays from
     dominating the gradient histogram.  Otsu's threshold is additionally
     capped at the upper quantile of non-zero gradients, so a sparse watermark
-    cannot suppress a larger, lower-contrast object contour.  The low threshold
-    is set to 40% of the result for Canny hysteresis.  Flat or nearly flat
-    templates fall back to the package defaults; the returned pair is always
-    valid for :class:`PatternConfig`.
+    cannot suppress a larger, lower-contrast object contour.  The hysteresis
+    ratio rises from 40% for weak templates to 75% for high-contrast templates:
+    weak contours retain connectivity, while stronger templates reject more
+    texture noise.  Flat or nearly flat templates fall back to the package
+    defaults; the returned pair is always valid for :class:`PatternConfig`.
     """
     validated = validate_image(template, "template")
     gray = to_gray(validated)
@@ -88,7 +93,18 @@ def estimate_contrast_thresholds(template: np.ndarray) -> tuple[int, int]:
     else:
         high = int(round(min(float(otsu_threshold), percentile_threshold)))
     high = int(np.clip(high, 2, 255))
-    low = int(np.clip(round(high * 0.4), 1, high - 1))
+    contrast_position = float(
+        np.clip(
+            (high - _CONTRAST_LOW_RATIO_RAMP_START)
+            / (_CONTRAST_LOW_RATIO_RAMP_END - _CONTRAST_LOW_RATIO_RAMP_START),
+            0.0,
+            1.0,
+        )
+    )
+    low_ratio = _CONTRAST_LOW_RATIO_MIN + contrast_position * (
+        _CONTRAST_LOW_RATIO_MAX - _CONTRAST_LOW_RATIO_MIN
+    )
+    low = int(np.clip(round(high * low_ratio), 1, high - 1))
     return low, high
 
 
