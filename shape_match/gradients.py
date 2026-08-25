@@ -31,9 +31,16 @@ def quantize_orientations(gx: FloatImage, gy: FloatImage) -> UInt8Image:
 
     Theta and theta + pi share the same label (undirected / polarity invariant).
     """
-    angles = np.mod(np.arctan2(gy, gx), np.pi)
-    labels = np.floor((angles + np.pi / (2 * NUM_ORIENTATIONS)) * (NUM_ORIENTATIONS / np.pi))
-    return np.mod(labels.astype(np.int16), NUM_ORIENTATIONS).astype(np.uint8)
+    # ``cv2.phase`` uses an optimized vectorized atan2 implementation.  The
+    # phase is in [0, 2*pi), so folding theta and theta + pi is equivalent to
+    # taking the bin index modulo NUM_ORIENTATIONS; this avoids an additional
+    # full-size floating-point modulo array on megapixel images.
+    angles = cv2.phase(gx, gy, angleInDegrees=False)
+    labels = np.floor(
+        (angles + np.pi / (2 * NUM_ORIENTATIONS))
+        * (NUM_ORIENTATIONS / np.pi)
+    )
+    return np.mod(labels.astype(np.int16), NUM_ORIENTATIONS).astype(np.uint8).reshape(gx.shape)
 
 
 def auto_canny_thresholds(magnitude: FloatImage) -> tuple[int, int]:
@@ -64,11 +71,25 @@ def consistent_edges(
     edges = cv2.Canny(gray, low, high, apertureSize=3, L2gradient=True) > 0
     labels = quantize_orientations(gx, gy)
 
+    # Each edge pixel already contributes one vote to its own 3x3 window, so
+    # ``votes >= 2`` is exactly equivalent to finding one 8-connected edge
+    # neighbour with the same orientation.  Comparing shifted views avoids
+    # eight full-image box filters and does not wrap at image borders.
     consistent = np.zeros_like(edges)
-    for label in range(NUM_ORIENTATIONS):
-        members = (edges & (labels == label)).astype(np.uint8)
-        votes = cv2.boxFilter(members, cv2.CV_16U, (3, 3), normalize=False, borderType=cv2.BORDER_CONSTANT)
-        consistent |= (members > 0) & (votes >= 2)
+    height, width = edges.shape
+    for offset_y in (-1, 0, 1):
+        for offset_x in (-1, 0, 1):
+            if offset_x == 0 and offset_y == 0:
+                continue
+            source_y = slice(max(0, offset_y), min(height, height + offset_y))
+            target_y = slice(max(0, -offset_y), min(height, height - offset_y))
+            source_x = slice(max(0, offset_x), min(width, width + offset_x))
+            target_x = slice(max(0, -offset_x), min(width, width - offset_x))
+            consistent[target_y, target_x] |= (
+                edges[target_y, target_x]
+                & edges[source_y, source_x]
+                & (labels[target_y, target_x] == labels[source_y, source_x])
+            )
 
     if int(np.count_nonzero(consistent)) < MIN_FEATURES:
         consistent = edges

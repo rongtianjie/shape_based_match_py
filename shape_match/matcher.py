@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import math
+import os
+from concurrent.futures import ThreadPoolExecutor
 import cv2
 import numpy as np
 from numpy.typing import NDArray
@@ -19,7 +21,9 @@ from shape_match.types import (
     APPEARANCE_MIN_SCORE,
     COARSE_ANGLE_STEP,
     COARSE_SCALE_STEP,
+    FINE_ANGLE_RADIUS,
     FINE_ANGLE_STEP,
+    FINE_SCALE_RADIUS,
     FINE_SCALE_STEP,
     NMS_IOU,
     Candidate,
@@ -28,11 +32,12 @@ from shape_match.types import (
     ModelFeatures,
     PatternConfig,
     PoseKernel,
+    ResponseImage,
     UInt8Image,
 )
 
 
-def pose_score_map(responses: FloatImage, kernel: PoseKernel) -> FloatImage | None:
+def pose_score_map(responses: ResponseImage, kernel: PoseKernel) -> FloatImage | None:
     """Correlate orientation response maps with a multi-channel pose kernel and return score map."""
     image_height, image_width = responses.shape[1:]
     if kernel.width > image_width or kernel.height > image_height:
@@ -41,7 +46,20 @@ def pose_score_map(responses: FloatImage, kernel: PoseKernel) -> FloatImage | No
     for label, template in enumerate(kernel.kernels):
         if template is None:
             continue
-        partial = cv2.matchTemplate(responses[label], template, cv2.TM_CCORR)
+        source = responses[label]
+        if source.dtype == np.uint8:
+            # The pose kernel stores integer feature multiplicities.  Keeping
+            # both operands in 8-bit form lets OpenCV use its faster integer
+            # correlation path; normalize the response before accumulation.
+            if float(np.max(template)) <= 255.0:
+                template_u8 = np.rint(template).astype(np.uint8)
+                partial = cv2.matchTemplate(source, template_u8, cv2.TM_CCORR)
+                partial *= np.float32(1.0 / 255.0)
+            else:
+                source = source.astype(np.float32) * np.float32(1.0 / 255.0)
+                partial = cv2.matchTemplate(source, template, cv2.TM_CCORR)
+        else:
+            partial = cv2.matchTemplate(source, template, cv2.TM_CCORR)
         if result is None:
             result = partial
         else:
@@ -103,7 +121,7 @@ def top_local_peaks(score_map: FloatImage, threshold: float, limit: int) -> list
 
 def coarse_search(
     features: ModelFeatures,
-    responses: FloatImage,
+    responses: ResponseImage,
     pattern: PatternConfig,
     matching: MatchConfig,
     image_factor: float,
@@ -136,22 +154,45 @@ def coarse_search(
     except ImportError:
         pass
 
-    for scale in scales:
-        for angle in angles:
-            kernel = build_pose_kernel(scaled_features, angle, scale)
-            score_map = pose_score_map(responses, kernel)
-            if score_map is None:
-                continue
-            for score, left, top in top_local_peaks(score_map, coarse_threshold, per_pose_limit):
-                candidates.append(
-                    Candidate(
-                        cx=(left + kernel.anchor_x) / image_factor,
-                        cy=(top + kernel.anchor_y) / image_factor,
-                        score=score,
-                        angle=angle,
-                        scale=scale,
-                    )
-                )
+    pose_specs = [
+        (scale, angle, build_pose_kernel(scaled_features, angle, scale))
+        for scale in scales
+        for angle in angles
+    ]
+
+    def evaluate_pose(
+        pose_spec: tuple[float, float, PoseKernel]
+    ) -> list[Candidate]:
+        scale, angle, kernel = pose_spec
+        score_map = pose_score_map(responses, kernel)
+        if score_map is None:
+            return []
+        return [
+            Candidate(
+                cx=(left + kernel.anchor_x) / image_factor,
+                cy=(top + kernel.anchor_y) / image_factor,
+                score=score,
+                angle=angle,
+                scale=scale,
+            )
+            for score, left, top in top_local_peaks(
+                score_map, coarse_threshold, per_pose_limit
+            )
+        ]
+
+    # Each pose reads the same immutable response maps but writes independent
+    # score maps.  OpenCV releases the GIL during correlation, so a bounded
+    # thread pool speeds up CPU coarse search without copying image data.
+    worker_count = min(
+        len(pose_specs), max(1, os.cpu_count() or 1), 8
+    )
+    if worker_count > 1:
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            for pose_candidates in executor.map(evaluate_pose, pose_specs):
+                candidates.extend(pose_candidates)
+    else:
+        for pose_spec in pose_specs:
+            candidates.extend(evaluate_pose(pose_spec))
 
     candidates.sort(key=lambda candidate: candidate.score, reverse=True)
     global_limit = max(24, matching.num_matches * 10)
@@ -178,16 +219,16 @@ def fine_pose_values(
     """Generate fine angle and scale sample values surrounding a coarse candidate pose."""
     angles: list[float] = []
     for angle in sample_interval(
-        candidate.angle - COARSE_ANGLE_STEP,
-        candidate.angle + COARSE_ANGLE_STEP,
+        candidate.angle - FINE_ANGLE_RADIUS,
+        candidate.angle + FINE_ANGLE_RADIUS,
         FINE_ANGLE_STEP,
     ):
         canonical = canonical_angle(angle, pattern)
         if angle_allowed(canonical, pattern) and not any(math.isclose(canonical, item, abs_tol=1e-7) for item in angles):
             angles.append(canonical)
 
-    scale_start = max(matching.scale_min, candidate.scale - COARSE_SCALE_STEP)
-    scale_stop = min(matching.scale_max, candidate.scale + COARSE_SCALE_STEP)
+    scale_start = max(matching.scale_min, candidate.scale - FINE_SCALE_RADIUS)
+    scale_stop = min(matching.scale_max, candidate.scale + FINE_SCALE_RADIUS)
     scales = sample_interval(scale_start, scale_stop, FINE_SCALE_STEP)
     return angles, scales
 
@@ -206,7 +247,7 @@ def valid_centres(
 
 
 def scores_at_centres(
-    responses: FloatImage,
+    responses: ResponseImage,
     offsets: FloatImage,
     labels: UInt8Image,
     centres: FloatImage,
@@ -217,13 +258,16 @@ def scores_at_centres(
     xs = rounded_centres[:, 0, None] + rounded_offsets[None, :, 0]
     ys = rounded_centres[:, 1, None] + rounded_offsets[None, :, 1]
     values = responses[labels[None, :], ys, xs]
-    return values.mean(axis=1, dtype=np.float32)
+    scores = values.mean(axis=1, dtype=np.float32)
+    if responses.dtype == np.uint8:
+        scores *= np.float32(1.0 / 255.0)
+    return scores
 
 
 def refine_candidate(
     candidate: Candidate,
     features: ModelFeatures,
-    responses: FloatImage,
+    responses: ResponseImage,
     pattern: PatternConfig,
     matching: MatchConfig,
 ) -> Candidate | None:

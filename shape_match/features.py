@@ -46,16 +46,15 @@ def select_scattered(
     best: list[int] = []
     for distance in (initial_distance, initial_distance * 0.75, initial_distance * 0.5, 1.0):
         selected: list[int] = []
-        selected_points = np.empty((limit, 2), dtype=np.float32)
+        remaining = np.ones(len(points_xy), dtype=bool)
         distance_sq = distance * distance
         for index in order:
+            if not remaining[index]:
+                continue
             point = points_xy[index]
-            if selected:
-                delta = selected_points[: len(selected)] - point
-                if np.any(np.einsum("ij,ij->i", delta, delta) < distance_sq):
-                    continue
-            selected_points[len(selected)] = point
             selected.append(int(index))
+            delta = points_xy - point
+            remaining &= np.einsum("ij,ij->i", delta, delta) >= distance_sq
             if len(selected) == limit:
                 break
         if len(selected) > len(best):

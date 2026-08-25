@@ -1,8 +1,13 @@
-import math
 import numpy as np
-from typing import List
 
-from shape_match.types import Candidate, MatchConfig, ModelFeatures, PatternConfig, FloatImage
+from shape_match.types import (
+    Candidate,
+    MatchConfig,
+    ModelFeatures,
+    PatternConfig,
+    PoseKernel,
+    ResponseImage,
+)
 from shape_match.transforms import build_pose_kernel
 
 try:
@@ -12,9 +17,62 @@ try:
 except ImportError:
     HAS_TORCH = False
 
+
+def _sparse_pose_score_maps(
+    responses: ResponseImage,
+    pose_kernels: list[tuple[float, float, PoseKernel]],
+    max_anchor_x: int,
+    max_anchor_y: int,
+    pad_width: int,
+    pad_height: int,
+    device: "torch.device",
+) -> "torch.Tensor":
+    """Accumulate sparse pose kernels without launching a dense convolution.
+
+    A pose kernel contains at most one non-zero value per extracted feature,
+    while a dense convolution evaluates every pixel in its bounding box.  A
+    shifted view of the response map is therefore the exact same correlation
+    operation and is substantially cheaper for shape templates.
+    """
+    responses_tensor = torch.from_numpy(np.ascontiguousarray(responses)).to(
+        device=device, dtype=torch.float32
+    )
+    if responses.dtype == np.uint8:
+        responses_tensor.mul_(1.0 / 255.0)
+    output_height = responses.shape[1] - pad_height + 1
+    output_width = responses.shape[2] - pad_width + 1
+    score_maps: list["torch.Tensor"] = []
+
+    for _, _, kernel in pose_kernels:
+        score_map = torch.zeros(
+            (output_height, output_width), device=device, dtype=torch.float32
+        )
+        start_y = max_anchor_y - kernel.anchor_y
+        start_x = max_anchor_x - kernel.anchor_x
+        inverse_count = 1.0 / float(kernel.feature_count)
+
+        for label, template in enumerate(kernel.kernels):
+            if template is None:
+                continue
+            ys, xs = np.nonzero(template)
+            values = template[ys, xs] * inverse_count
+            source = responses_tensor[label]
+            for y, x, value in zip(ys, xs, values):
+                score_map.add_(
+                    source[
+                        start_y + int(y) : start_y + int(y) + output_height,
+                        start_x + int(x) : start_x + int(x) + output_width,
+                    ],
+                    alpha=float(value),
+                )
+        score_maps.append(score_map)
+
+    return torch.stack(score_maps)
+
+
 def coarse_search_pytorch(
     features: ModelFeatures,
-    responses: FloatImage,
+    responses: ResponseImage,
     pattern: PatternConfig,
     matching: MatchConfig,
     image_factor: float,
@@ -50,23 +108,49 @@ def coarse_search_pytorch(
     
     num_poses = len(pose_kernels)
     num_orientations = len(pose_kernels[0][2].kernels)
-    
-    weights = np.zeros((num_poses, num_orientations, pad_height, pad_width), dtype=np.float32)
-    
-    for i, (scale, angle, k) in enumerate(pose_kernels):
-        start_y = max_anchor_y - k.anchor_y
-        start_x = max_anchor_x - k.anchor_x
-        inv_count = 1.0 / float(k.feature_count) if k.feature_count > 0 else 0.0
-        for j, template in enumerate(k.kernels):
-            if template is not None:
-                weights[i, j, start_y : start_y + k.height, start_x : start_x + k.width] = template * inv_count
-                
-    weights_tensor = torch.from_numpy(weights).to(device)
-    responses_tensor = torch.from_numpy(responses).unsqueeze(0).to(device)
-    
-    candidates = []
+
     with torch.no_grad():
-        out = F.conv2d(responses_tensor, weights_tensor).squeeze(0) # (num_poses, out_H, out_W)
+        if device.type == "cuda":
+            # The kernels are sparse (normally <= 256 feature points), so
+            # shifted accumulation avoids the prohibitively expensive dense
+            # 200x200-ish convolution used by the previous implementation.
+            out = _sparse_pose_score_maps(
+                responses,
+                pose_kernels,
+                max_anchor_x,
+                max_anchor_y,
+                pad_width,
+                pad_height,
+                device,
+            )
+        else:
+            # Keep a dense CPU fallback.  The public matcher only selects the
+            # PyTorch path when CUDA is available, but this makes the helper
+            # behave sensibly when called directly in a CPU-only environment.
+            weights = np.zeros(
+                (num_poses, num_orientations, pad_height, pad_width),
+                dtype=np.float32,
+            )
+            for i, (_, _, kernel) in enumerate(pose_kernels):
+                start_y = max_anchor_y - kernel.anchor_y
+                start_x = max_anchor_x - kernel.anchor_x
+                inverse_count = 1.0 / float(kernel.feature_count)
+                for j, template in enumerate(kernel.kernels):
+                    if template is not None:
+                        weights[
+                            i,
+                            j,
+                            start_y : start_y + kernel.height,
+                            start_x : start_x + kernel.width,
+                        ] = template * inverse_count
+            weights_tensor = torch.from_numpy(weights).to(device)
+            responses_tensor = torch.from_numpy(responses).unsqueeze(0).to(
+                device=device, dtype=torch.float32
+            )
+            if responses.dtype == np.uint8:
+                responses_tensor.mul_(1.0 / 255.0)
+            out = F.conv2d(responses_tensor, weights_tensor).squeeze(0)
+
         out = torch.clamp(out, 0.0, 1.0)
         
         # local peaks using max pool
@@ -91,6 +175,7 @@ def coarse_search_pytorch(
         ys = flat_spatial_indices // out_W
         xs = flat_spatial_indices % out_W
         
+        candidates = []
         for idx in range(len(scores)):
             p_idx = pose_indices[idx]
             scale, angle, _ = pose_kernels[p_idx]

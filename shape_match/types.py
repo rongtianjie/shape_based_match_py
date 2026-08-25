@@ -10,16 +10,19 @@ from numpy.typing import NDArray
 # Type aliases for image arrays
 FloatImage = NDArray[np.float32]
 UInt8Image = NDArray[np.uint8]
+ResponseImage = FloatImage | UInt8Image
 
 # Hyperparameters & algorithmic constants
 NUM_ORIENTATIONS: int = 8
 MAX_FEATURES: int = 256
 MIN_FEATURES: int = 8
 
-COARSE_ANGLE_STEP: float = 5.0
+COARSE_ANGLE_STEP: float = 10.0
 FINE_ANGLE_STEP: float = 1.0
-COARSE_SCALE_STEP: float = 0.05
+COARSE_SCALE_STEP: float = 0.1
 FINE_SCALE_STEP: float = 0.01
+FINE_ANGLE_RADIUS: float = 5.0
+FINE_SCALE_RADIUS: float = 0.05
 NMS_IOU: float = 0.5
 
 AUTO_CANNY_LOW_RATIO: float = 0.65

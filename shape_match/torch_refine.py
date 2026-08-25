@@ -1,8 +1,7 @@
-import math
 import numpy as np
 import cv2
 
-from shape_match.types import Candidate, MatchConfig, ModelFeatures, PatternConfig, FloatImage
+from shape_match.types import Candidate, MatchConfig, ModelFeatures, PatternConfig, ResponseImage
 from shape_match.matcher import valid_centres, fine_pose_values
 
 try:
@@ -15,7 +14,7 @@ except ImportError:
 def refine_candidates_pytorch(
     candidates: list[Candidate],
     features: ModelFeatures,
-    responses: FloatImage,
+    responses: ResponseImage,
     pattern: PatternConfig,
     matching: MatchConfig,
 ) -> list[Candidate]:
@@ -27,7 +26,9 @@ def refine_candidates_pytorch(
     image_height, image_width = responses.shape[1:]
     
     refined_candidates = []
-    responses_t = torch.from_numpy(responses).to(device)
+    responses_t = torch.from_numpy(responses).to(device=device, dtype=torch.float32)
+    if responses.dtype == np.uint8:
+        responses_t.mul_(1.0 / 255.0)
     
     for candidate in candidates:
         base_x = int(round(candidate.cx))
