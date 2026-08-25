@@ -19,7 +19,9 @@ test = ["pytest>=8"]
 
 [tool.setuptools]
 py-modules = ["pattern_match"]
+packages = ["shape_match"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 addopts = "-ra"

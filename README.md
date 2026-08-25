@@ -58,6 +58,20 @@ if match_view is not None:
 ```
 
 完整接口、默认值和异常规则参见 [API_INTERFACE.md](API_INTERFACE.md)。
+二次开发支持 `from shape_match import TemplateModel, ShapeMatcher` 进行模板复用与分步匹配。
+
+## 模块架构
+
+项目已解耦为高内聚子模块：
+- `shape_match.config`: 配置类 `PatternConfig`, `MatchConfig` 及严格校验
+- `shape_match.gradients`: 梯度计算、Sobel、8 方向无向角度量化与方向一致性滤波
+- `shape_match.features`: 背景抑制前景分割、最大分散度采样及特征提取
+- `shape_match.transforms`: 2D 几何变换、多通道模板卷积核构建与多边形 IoU
+- `shape_match.response_maps`: 8 通道方向响应图计算与空间膨胀容差
+- `shape_match.matcher`: 粗精分层搜索、局部网格精细化、外观验证与 NMS 抑制
+- `shape_match.visualization`: 特征点分布与匹配边界框渲染
+- `shape_match.engine`: `TemplateModel`（模板对象）与 `ShapeMatcher`（匹配引擎）
+- `pattern_match.py`: 顶层门面模块，保持与原始公共接口 100% 兼容
 
 ## 算法概览
 

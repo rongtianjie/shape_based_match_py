@@ -130,3 +130,34 @@ for cx, cy, score, angle, scale in results:
 ```
 
 模板外框越紧、强边缘越属于目标本身，匹配通常越稳定。大范围角度与尺度组合会增加搜索时间。
+
+## 二次开发与高级用法 (`shape_match`)
+
+对于需要多帧处理（如视频流、工业相机连续采集）、批量匹配或自定义扩展算法的场景，项目提供了高内聚的模块化架构 `shape_match`：
+
+```python
+import cv2
+from shape_match import TemplateModel, ShapeMatcher
+
+# 1. 一次性提取模板特征（避免在每帧图像中重复提取）
+template = TemplateModel.from_image(model, pat_config)
+
+# 2. 初始化匹配器
+matcher = ShapeMatcher(pat_config, match_config)
+
+# 3. 对多帧图像连续匹配
+for frame in frame_stream:
+    matches, show = matcher.match(template, frame)
+    for candidate in matches:
+        print(candidate.cx, candidate.cy, candidate.score, candidate.angle, candidate.scale)
+```
+
+子模块职责划分：
+- `shape_match.config`：配置定义与参数校验
+- `shape_match.gradients`：Sobel 梯度、8 角度量化、自适应阈值
+- `shape_match.features`：前景分割、最大分散度特征点采样
+- `shape_match.transforms`：几何旋转缩放、多边形 IoU、卷积核构建
+- `shape_match.response_maps`：8 通道方向响应图与空间扩散
+- `shape_match.matcher`：粗精分层搜索、外观验证与 NMS 抑制
+- `shape_match.visualization`：特征点与匹配框渲染
+
