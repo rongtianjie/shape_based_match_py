@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ShapeMatch Studio - 基于梯度方向的二维形状匹配工作台</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=20260825_2">
+  <link rel="stylesheet" href="/static/css/style.css?v=20260825_3">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -175,6 +175,16 @@
                 </div>
               </div>
             </div>
+          </div>
+
+          <div class="upload-quick-actions">
+            <button id="btn-quick-roi" type="button" class="quick-action-link" title="在全景图或当前视图上按住鼠标拖动框选截取模板">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M4 7V4h3M20 7V4h-3M4 17v3h3M20 17v3h-3"></path>
+                <circle cx="12" cy="12" r="2.5"></circle>
+              </svg>
+              <span>从画面拖动框选截取模板 (ROI)</span>
+            </button>
           </div>
         </section>
 
@@ -568,6 +578,17 @@
                 <span>特征/框线图层</span>
               </label>
             </div>
+
+            <!-- ROI Drag-Selection Tool -->
+            <div class="roi-tool-group">
+              <button id="btn-roi-select" class="action-pill-btn roi-select-btn" title="在画布图像上按住鼠标左键拖动，框选矩形截取为 Template 模板，并自动估算高低对比度阈值 (快捷键: R 或按住 Shift 拖动)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M4 7V4h3M20 7V4h-3M4 17v3h3M20 17v3h-3"></path>
+                  <circle cx="12" cy="12" r="2"></circle>
+                </svg>
+                <span>拖动框选模板 (ROI)</span>
+              </button>
+            </div>
           </div>
 
           <div class="toolbar-right">
@@ -754,6 +775,6 @@
   </div>
 
   <!-- Scripts -->
-  <script type="module" src="/static/js/app.js?v=20260825_2"></script>
+  <script type="module" src="/static/js/app.js?v=20260825_3"></script>
 </body>
 </html>

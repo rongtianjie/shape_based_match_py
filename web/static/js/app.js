@@ -52,6 +52,12 @@ const state = {
   isPanning: false,
   startPan: { x: 0, y: 0 },
 
+  // ROI Drag Selection
+  isRoiMode: false,
+  isSelectingRoi: false,
+  roiStart: { x: 0, y: 0 },
+  roiEnd: { x: 0, y: 0 },
+
   // Auto-extraction debounce
   autoExtractTimer: null,
   isExtracting: false,
@@ -156,6 +162,8 @@ function initDomElements() {
   dom.viewModeMatch = document.getElementById('view-mode-match');
   dom.viewModeSplit = document.getElementById('view-mode-split');
   dom.toggleLayerOverlay = document.getElementById('toggle-layer-overlay');
+  dom.btnRoiSelect = document.getElementById('btn-roi-select');
+  dom.btnQuickRoi = document.getElementById('btn-quick-roi');
 
   dom.btnZoomIn = document.getElementById('btn-zoom-in');
   dom.btnZoomOut = document.getElementById('btn-zoom-out');
@@ -325,8 +333,28 @@ function initEventListeners() {
 
   dom.btnRunMatch.addEventListener('click', runShapeMatch);
 
-  // Keyboard shortcut: Ctrl + Enter to run match
+  // ROI Selection Buttons
+  if (dom.btnRoiSelect) {
+    dom.btnRoiSelect.addEventListener('click', toggleRoiMode);
+  }
+  if (dom.btnQuickRoi) {
+    dom.btnQuickRoi.addEventListener('click', () => {
+      const img = getActiveDisplayImage() || state.sourceImage || state.templateImage;
+      if (!img) {
+        showToast('请先加载全景图或示例场景后再进行框选', 'warning');
+        return;
+      }
+      if (state.sourceImage && state.currentViewMode !== 'match') {
+        setViewMode('match');
+      }
+      enableRoiMode();
+    });
+  }
+
+  // Keyboard shortcut: Ctrl + Enter to run match / R to toggle ROI / Escape to cancel ROI
   window.addEventListener('keydown', (e) => {
+    const isEditingText = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
+
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
       if (state.currentStep === 1) {
@@ -334,12 +362,46 @@ function initEventListeners() {
       } else {
         runShapeMatch();
       }
+    } else if ((e.key === 'r' || e.key === 'R') && !isEditingText && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      toggleRoiMode();
+    } else if (e.key === 'Escape' && state.isRoiMode) {
+      e.preventDefault();
+      disableRoiMode();
     }
   });
 
   // Export buttons
   dom.btnExportImage.addEventListener('click', exportCanvasImage);
   dom.btnExportJson.addEventListener('click', exportResultsJson);
+}
+
+function toggleRoiMode() {
+  if (state.isRoiMode) {
+    disableRoiMode();
+  } else {
+    enableRoiMode();
+  }
+}
+
+function enableRoiMode() {
+  const img = getActiveDisplayImage() || state.sourceImage || state.templateImage;
+  if (!img) {
+    showToast('请先在画布中加载或上传图像后再进行框选', 'warning');
+    return;
+  }
+  state.isRoiMode = true;
+  if (dom.btnRoiSelect) dom.btnRoiSelect.classList.add('active');
+  if (dom.singleViewport) dom.singleViewport.classList.add('is-roi-mode');
+  showToast('已进入模板框选模式：在画面上按住鼠标左键拖动以框选目标区域', 'info');
+}
+
+function disableRoiMode() {
+  state.isRoiMode = false;
+  state.isSelectingRoi = false;
+  if (dom.btnRoiSelect) dom.btnRoiSelect.classList.remove('active');
+  if (dom.singleViewport) dom.singleViewport.classList.remove('is-roi-mode');
+  renderCurrentView();
 }
 
 function setTheme(theme) {
@@ -426,9 +488,9 @@ function handleGlobalPaste(e) {
   }
 }
 
-function loadTemplateImageFromSrc(src) {
+function loadTemplateImageFromSrc(src, autoEstimate = true) {
   const img = new Image();
-  img.onload = () => {
+  img.onload = async () => {
     state.templateImage = img;
     state.templateOriginalB64 = src;
     state.templateViewB64 = null;
@@ -448,7 +510,12 @@ function loadTemplateImageFromSrc(src) {
       setViewMode('template');
     }
     fitCanvasToStage(img);
-    extractTemplateFeatures(true);
+
+    if (autoEstimate) {
+      await estimateTemplateContrast(true);
+    } else {
+      extractTemplateFeatures(true);
+    }
   };
   img.src = src;
 }
@@ -568,7 +635,7 @@ async function loadSampleDataset(sampleId) {
     validateAllConfigs();
 
     // Load template image
-    loadTemplateImageFromSrc(data.model_image);
+    loadTemplateImageFromSrc(data.model_image, false);
     loadSourceImageFromSrc(data.source_image);
 
     showToast('示例场景已载入！可直接在步骤一微调特征或进入步骤二匹配', 'success');
@@ -864,16 +931,18 @@ function onMatchConfigChanged() {
 // ===================================================================
 // Step 1: Feature Extraction API Call
 // ===================================================================
-async function estimateTemplateContrast() {
+async function estimateTemplateContrast(showSuccessToast = true) {
   if (!state.templateOriginalB64) {
     showToast('请先拖拽或上传 Template 模板图片', 'warning');
     return;
   }
 
-  const label = dom.btnAutoContrast.querySelector('span');
-  dom.btnAutoContrast.disabled = true;
-  dom.btnAutoContrast.setAttribute('aria-busy', 'true');
-  label.textContent = '分析中…';
+  const label = dom.btnAutoContrast ? dom.btnAutoContrast.querySelector('span') : null;
+  if (dom.btnAutoContrast) {
+    dom.btnAutoContrast.disabled = true;
+    dom.btnAutoContrast.setAttribute('aria-busy', 'true');
+  }
+  if (label) label.textContent = '分析中…';
 
   try {
     const resp = await fetch('/api/estimate-contrast-json', {
@@ -890,18 +959,22 @@ async function estimateTemplateContrast() {
     state.patConfig.contrast_high = data.contrast_high;
     updateFormControls();
     validateAllConfigs();
-    showToast(`已自动设置对比度阈值：Low ${data.contrast_low} / High ${data.contrast_high}`, 'success');
+    if (showSuccessToast) {
+      showToast(`已自动估算对比度阈值：Low ${data.contrast_low} / High ${data.contrast_high}`, 'success');
+    }
 
-    if (dom.autoExtractToggle.checked) {
+    if (dom.autoExtractToggle && dom.autoExtractToggle.checked) {
       await extractTemplateFeatures(true);
     }
   } catch (err) {
     console.error(err);
     showToast(`自动估算对比度失败: ${err.message}`, 'error');
   } finally {
-    dom.btnAutoContrast.disabled = false;
-    dom.btnAutoContrast.removeAttribute('aria-busy');
-    label.textContent = 'Auto';
+    if (dom.btnAutoContrast) {
+      dom.btnAutoContrast.disabled = false;
+      dom.btnAutoContrast.removeAttribute('aria-busy');
+    }
+    if (label) label.textContent = 'Auto';
   }
 }
 
@@ -1176,9 +1249,36 @@ function initCanvasViewport() {
     renderCurrentView();
   }, { passive: false });
 
-  // Mouse drag pan
+  // Mouse drag pan or ROI selection
   stage.addEventListener('mousedown', (e) => {
-    if (e.button === 0 || e.button === 1) { // Left or middle click
+    if (e.button === 0) { // Left click
+      const isRoiActive = state.isRoiMode || e.shiftKey;
+      const img = getActiveDisplayImage();
+
+      if (isRoiActive && img) {
+        const rect = stage.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        const imgW = img.naturalWidth || img.width;
+        const imgH = img.naturalHeight || img.height;
+        const imgX = (mouseX - state.panX) / state.zoom;
+        const imgY = (mouseY - state.panY) / state.zoom;
+
+        state.isSelectingRoi = true;
+        state.roiStart = {
+          x: Math.max(0, Math.min(imgW, imgX)),
+          y: Math.max(0, Math.min(imgH, imgY)),
+        };
+        state.roiEnd = { ...state.roiStart };
+        renderCurrentView();
+        return;
+      }
+
+      state.isPanning = true;
+      state.startPan = { x: e.clientX - state.panX, y: e.clientY - state.panY };
+      stage.classList.add('is-panning');
+    } else if (e.button === 1) { // Middle click always pans
       state.isPanning = true;
       state.startPan = { x: e.clientX - state.panX, y: e.clientY - state.panY };
       stage.classList.add('is-panning');
@@ -1186,7 +1286,25 @@ function initCanvasViewport() {
   });
 
   window.addEventListener('mousemove', (e) => {
-    if (state.isPanning) {
+    if (state.isSelectingRoi) {
+      const img = getActiveDisplayImage();
+      if (img) {
+        const rect = stage.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        const imgW = img.naturalWidth || img.width;
+        const imgH = img.naturalHeight || img.height;
+
+        const imgX = (mouseX - state.panX) / state.zoom;
+        const imgY = (mouseY - state.panY) / state.zoom;
+
+        state.roiEnd = {
+          x: Math.max(0, Math.min(imgW, imgX)),
+          y: Math.max(0, Math.min(imgH, imgY)),
+        };
+        renderCurrentView();
+      }
+    } else if (state.isPanning) {
       state.panX = e.clientX - state.startPan.x;
       state.panY = e.clientY - state.startPan.y;
       renderCurrentView();
@@ -1197,11 +1315,51 @@ function initCanvasViewport() {
   });
 
   window.addEventListener('mouseup', () => {
+    if (state.isSelectingRoi) {
+      state.isSelectingRoi = false;
+      finishRoiCrop();
+    }
     if (state.isPanning) {
       state.isPanning = false;
       stage.classList.remove('is-panning');
     }
   });
+}
+
+function finishRoiCrop() {
+  const img = getActiveDisplayImage();
+  if (!img) return;
+
+  const minX = Math.round(Math.min(state.roiStart.x, state.roiEnd.x));
+  const minY = Math.round(Math.min(state.roiStart.y, state.roiEnd.y));
+  const maxX = Math.round(Math.max(state.roiStart.x, state.roiEnd.x));
+  const maxY = Math.round(Math.max(state.roiStart.y, state.roiEnd.y));
+
+  const cropW = maxX - minX;
+  const cropH = maxY - minY;
+
+  // Need at least 8x8 pixels for valid template
+  if (cropW >= 8 && cropH >= 8) {
+    const cropCanvas = document.createElement('canvas');
+    cropCanvas.width = cropW;
+    cropCanvas.height = cropH;
+    const cropCtx = cropCanvas.getContext('2d');
+    cropCtx.drawImage(img, minX, minY, cropW, cropH, 0, 0, cropW, cropH);
+
+    const croppedDataUrl = cropCanvas.toDataURL('image/png');
+
+    disableRoiMode();
+    showToast(`已拖动框选截取模板 (${cropW} × ${cropH} px)，正在自动估算高低对比度阈值...`, 'info');
+
+    // Load as template, autoEstimate = true will trigger estimateTemplateContrast
+    loadTemplateImageFromSrc(croppedDataUrl, true);
+    setStep(1);
+    if (state.currentViewMode !== 'split') {
+      setViewMode('template');
+    }
+  } else {
+    renderCurrentView();
+  }
 }
 
 function adjustZoom(factor) {
@@ -1381,6 +1539,55 @@ function renderMainCanvas() {
   }
 
   ctx.restore();
+
+  // Draw ROI Drag-Selection Overlay
+  if (state.isSelectingRoi) {
+    const minX = Math.min(state.roiStart.x, state.roiEnd.x);
+    const minY = Math.min(state.roiStart.y, state.roiEnd.y);
+    const w = Math.abs(state.roiEnd.x - state.roiStart.x);
+    const h = Math.abs(state.roiEnd.y - state.roiStart.y);
+
+    const screenX = minX * state.zoom + state.panX;
+    const screenY = minY * state.zoom + state.panY;
+    const screenW = w * state.zoom;
+    const screenH = h * state.zoom;
+
+    // Direct draw in stage canvas coordinates
+    ctx.save();
+    ctx.fillStyle = 'rgba(6, 182, 212, 0.22)';
+    ctx.fillRect(screenX, screenY, screenW, screenH);
+
+    ctx.strokeStyle = '#06b6d4';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    ctx.strokeRect(screenX, screenY, screenW, screenH);
+
+    ctx.strokeStyle = 'rgba(15, 23, 42, 0.6)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([]);
+    ctx.strokeRect(screenX, screenY, screenW, screenH);
+
+    // Dimension HUD badge
+    const badgeText = `${Math.round(w)} × ${Math.round(h)} px`;
+    ctx.font = '600 11px JetBrains Mono, monospace';
+    const textWidth = ctx.measureText(badgeText).width;
+    const badgeW = textWidth + 14;
+    const badgeH = 22;
+    const badgeX = Math.max(8, Math.min(stageW - badgeW - 8, screenX));
+    const badgeY = screenY - badgeH - 6 >= 6 ? screenY - badgeH - 6 : screenY + screenH + 6;
+
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+    ctx.strokeStyle = '#06b6d4';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 4);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillText(badgeText, badgeX + 7, badgeY + 15);
+    ctx.restore();
+  }
 }
 
 function drawMatchHighlight(ctx, match, tmplDim) {

@@ -526,6 +526,47 @@ body.theme-dark .card-title code {
   opacity: 1;
 }
 
+.upload-quick-actions {
+  margin-top: 10px;
+  display: flex;
+  justify-content: center;
+}
+
+.quick-action-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent-blue);
+  background: rgba(37, 99, 235, 0.08);
+  border: 1px dashed rgba(37, 99, 235, 0.4);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  width: 100%;
+  justify-content: center;
+}
+
+.quick-action-link:hover {
+  background: rgba(37, 99, 235, 0.16);
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+  transform: translateY(-1px);
+}
+
+body.theme-dark .quick-action-link {
+  color: var(--accent-cyan);
+  background: rgba(6, 182, 212, 0.1);
+  border-color: rgba(6, 182, 212, 0.35);
+}
+
+body.theme-dark .quick-action-link:hover {
+  background: rgba(6, 182, 212, 0.2);
+  border-color: var(--accent-cyan);
+}
+
 .dim-badge {
   background: rgba(15, 23, 42, 0.75);
   color: #ffffff;
@@ -1208,6 +1249,52 @@ body.theme-dark .view-tab-btn.active {
   border-color: var(--border-light);
 }
 
+.roi-select-btn {
+  border-color: rgba(37, 99, 235, 0.35);
+  color: var(--accent-blue);
+  background: rgba(37, 99, 235, 0.05);
+}
+
+.roi-select-btn:hover {
+  background: rgba(37, 99, 235, 0.12);
+  border-color: var(--accent-blue);
+}
+
+.roi-select-btn.active {
+  background: var(--accent-blue) !important;
+  color: #ffffff !important;
+  border-color: var(--accent-blue) !important;
+  box-shadow: 0 0 12px rgba(37, 99, 235, 0.35);
+  animation: pulse-border 2s infinite ease-in-out;
+}
+
+body.theme-dark .roi-select-btn {
+  border-color: rgba(6, 182, 212, 0.35);
+  color: var(--accent-cyan);
+  background: rgba(6, 182, 212, 0.08);
+}
+
+body.theme-dark .roi-select-btn:hover {
+  background: rgba(6, 182, 212, 0.15);
+  border-color: var(--accent-cyan);
+}
+
+body.theme-dark .roi-select-btn.active {
+  background: var(--accent-cyan) !important;
+  color: #090d16 !important;
+  border-color: var(--accent-cyan) !important;
+  box-shadow: 0 0 14px rgba(6, 182, 212, 0.45);
+}
+
+@keyframes pulse-border {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.15);
+  }
+}
+
 /* Viewport Canvas Stage */
 .viewport-container {
   flex: 1;
@@ -1236,6 +1323,10 @@ body.theme-dark .viewport-container {
 
 .viewport-stage.is-panning {
   cursor: grabbing;
+}
+
+.viewport-stage.is-roi-mode {
+  cursor: crosshair !important;
 }
 
 .render-canvas {
