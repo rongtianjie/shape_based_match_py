@@ -119,20 +119,32 @@ class ShapeMatcher:
             return [], None
 
         full_responses = orientation_response_maps(source_gray, self.pattern_config)
-        refined: list[Candidate] = []
-        for candidate in coarse:
-            result = refine_candidate(candidate, features, full_responses, self.pattern_config, self.match_config)
-            if result is None or result.score < self.match_config.min_score:
-                continue
+        
+        try:
+            import torch
+            from shape_match.torch_refine import refine_candidates_pytorch, HAS_TORCH
+            if HAS_TORCH and torch.cuda.is_available():
+                refined = refine_candidates_pytorch(coarse, features, full_responses, self.pattern_config, self.match_config)
+            else:
+                raise ImportError
+        except ImportError:
+            refined = []
+            for candidate in coarse:
+                result = refine_candidate(candidate, features, full_responses, self.pattern_config, self.match_config)
+                if result is not None and result.score >= self.match_config.min_score:
+                    refined.append(result)
+
+        final_candidates: list[Candidate] = []
+        for result in refined:
             patch = resample_candidate_patch(source_gray, features, result)
             app_score = appearance_score(features.template_gray, features.appearance_mask, patch)
             if app_score >= APPEARANCE_MIN_SCORE:
-                refined.append(result)
+                final_candidates.append(result)
 
-        if not refined:
+        if not final_candidates:
             return [], None
 
-        matches = nms(refined, features, self.match_config.num_matches)
+        matches = nms(final_candidates, features, self.match_config.num_matches)
         if not matches:
             return [], None
 

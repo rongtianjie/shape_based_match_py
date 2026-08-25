@@ -123,8 +123,21 @@ def coarse_search(
     )
 
     coarse_threshold = max(0.02, matching.min_score * 0.8)
-    for scale in coarse_scales(matching):
-        for angle in coarse_angles(pattern):
+    scales = coarse_scales(matching)
+    angles = coarse_angles(pattern)
+    
+    try:
+        import torch
+        from shape_match.torch_matcher import coarse_search_pytorch, HAS_TORCH
+        if HAS_TORCH and torch.cuda.is_available():
+            return coarse_search_pytorch(
+                scaled_features, responses, pattern, matching, image_factor, scales, angles
+            )
+    except ImportError:
+        pass
+
+    for scale in scales:
+        for angle in angles:
             kernel = build_pose_kernel(scaled_features, angle, scale)
             score_map = pose_score_map(responses, kernel)
             if score_map is None:
