@@ -26,14 +26,16 @@ python -m pytest
 ```python
 import cv2
 
-from pattern_match import get_matched_result, get_model_shape
+from pattern_match import estimate_contrast_thresholds, get_matched_result, get_model_shape
 
 model = cv2.imread("model.png")
 source = cv2.imread("source.png")
 
+contrast_low, contrast_high = estimate_contrast_thresholds(model)
+
 pattern_config = {
-    "contrast_low": 3,
-    "contrast_high": 5,
+    "contrast_low": contrast_low,
+    "contrast_high": contrast_high,
     "angle_start": -20.0,
     "angle_extent": 40.0,
     "num_levels": 1,
@@ -58,7 +60,7 @@ if match_view is not None:
 ```
 
 完整接口、默认值和异常规则参见 [API_INTERFACE.md](API_INTERFACE.md)。
-二次开发支持 `from shape_match import TemplateModel, ShapeMatcher` 进行模板复用与分步匹配。
+二次开发支持 `from shape_match import TemplateModel, ShapeMatcher` 进行模板复用与分步匹配。Web 页面模板配置区的 **Auto** 按钮使用同一个 `estimate_contrast_thresholds(model)` 函数自动回填双阈值。
 
 ## 模块架构
 

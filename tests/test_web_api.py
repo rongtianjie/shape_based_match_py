@@ -25,6 +25,7 @@ class TestWebApi(unittest.TestCase):
         resp = client.get("/")
         self.assertEqual(resp.status_code, 200)
         self.assertIn("ShapeMatch", resp.text)
+        self.assertIn('id="btn-auto-contrast"', resp.text)
 
     def test_list_samples(self):
         resp = client.get("/api/samples")
@@ -78,6 +79,25 @@ class TestWebApi(unittest.TestCase):
         self.assertTrue(data["success"])
         self.assertGreaterEqual(data["feature_count"], 8)
         self.assertIsNotNone(data["model_view"])
+
+    def test_estimate_contrast_from_template(self):
+        img_bytes = make_test_image_bytes()
+        encoded = base64.b64encode(img_bytes).decode("ascii")
+        resp = client.post(
+            "/api/estimate-contrast-json",
+            json={"model_base64": f"data:image/png;base64,{encoded}"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data["success"])
+        self.assertGreaterEqual(data["contrast_low"], 1)
+        self.assertGreater(data["contrast_high"], data["contrast_low"])
+        self.assertLessEqual(data["contrast_high"], 255)
+
+    def test_estimate_contrast_requires_template(self):
+        resp = client.post("/api/estimate-contrast-json", json={})
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(resp.json()["success"])
 
     def test_extract_flat_template(self):
         flat_bytes = make_test_image_bytes(draw_rect=False)

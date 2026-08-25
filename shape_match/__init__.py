@@ -9,6 +9,7 @@ from shape_match.engine import (
     extract_model_shape,
     match_template,
 )
+from shape_match.gradients import estimate_contrast_thresholds
 from shape_match.types import (
     Candidate,
     MatchConfig,
@@ -23,6 +24,7 @@ __all__ = [
     "ShapeMatcher",
     "extract_model_shape",
     "match_template",
+    "estimate_contrast_thresholds",
     "PatternConfig",
     "MatchConfig",
     "ModelFeatures",

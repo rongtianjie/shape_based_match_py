@@ -13,6 +13,7 @@ from shape_match import (
     PatternConfig,
     ShapeMatcher,
     TemplateModel,
+    estimate_contrast_thresholds,
     extract_model_shape,
     match_template,
     parse_match_config,
@@ -105,3 +106,39 @@ def test_gradient_and_transforms() -> None:
     poly1 = np.array([[0, 0], [10, 0], [10, 10], [0, 10]], dtype=np.float32)
     poly2 = np.array([[0, 0], [10, 0], [10, 10], [0, 10]], dtype=np.float32)
     assert pytest.approx(polygon_iou(poly1, poly2), abs=1e-4) == 1.0
+
+
+def test_estimate_contrast_thresholds_from_template_content() -> None:
+    weak = np.zeros((80, 100, 3), dtype=np.uint8)
+    strong = np.zeros_like(weak)
+    cv2.rectangle(weak, (10, 10), (90, 70), (30, 30, 30), 3)
+    cv2.rectangle(strong, (10, 10), (90, 70), (220, 220, 220), 3)
+
+    weak_low, weak_high = estimate_contrast_thresholds(weak)
+    strong_low, strong_high = estimate_contrast_thresholds(strong)
+
+    assert 1 <= weak_low < weak_high <= 255
+    assert 1 <= strong_low < strong_high <= 255
+    assert strong_low > weak_low
+    assert strong_high > weak_high
+    assert estimate_contrast_thresholds(np.zeros((20, 20), dtype=np.uint8)) == (3, 5)
+
+
+def test_estimate_contrast_thresholds_resists_sparse_strong_overlay() -> None:
+    background = np.full((250, 250), 90, dtype=np.float32)
+    cross_mask = np.zeros((250, 250), dtype=np.uint8)
+    cv2.rectangle(cross_mask, (90, 20), (160, 230), 255, -1)
+    cv2.rectangle(cross_mask, (20, 90), (230, 160), 255, -1)
+    soft_cross = cv2.GaussianBlur(cross_mask.astype(np.float32) / 255.0, (0, 0), 3)
+    gray = np.clip(background - 20.0 * soft_cross, 0, 255).astype(np.uint8)
+
+    # Mimic a narrow, much stronger timestamp/watermark crossing the template.
+    cv2.putText(gray, "TEST", (0, 55), cv2.FONT_HERSHEY_SIMPLEX, 1.5, 150, 2, cv2.LINE_AA)
+    template = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+
+    low, high = estimate_contrast_thresholds(template)
+    edges = cv2.Canny(gray, low, high, apertureSize=3, L2gradient=True)
+
+    assert 1 <= low < high <= 35
+    # The low-contrast horizontal arm must survive despite the stronger text.
+    assert np.count_nonzero(edges[84:97, 20:231]) >= 100

@@ -108,6 +108,7 @@ function initDomElements() {
   dom.sliderContrastHigh = document.getElementById('slider-contrast-high');
   dom.inputContrastHigh = document.getElementById('input-contrast-high');
   dom.contrastValidation = document.getElementById('contrast-validation-msg');
+  dom.btnAutoContrast = document.getElementById('btn-auto-contrast');
 
   dom.sliderAngleStart = document.getElementById('slider-angle-start');
   dom.inputAngleStart = document.getElementById('input-angle-start');
@@ -293,6 +294,7 @@ function initEventListeners() {
 
   // Step 1 Extraction Action
   dom.btnExtract.addEventListener('click', () => extractTemplateFeatures(false));
+  dom.btnAutoContrast.addEventListener('click', estimateTemplateContrast);
 
   // Angle preset chips
   document.querySelectorAll('.preset-chip[data-angle-start]').forEach((chip) => {
@@ -862,6 +864,47 @@ function onMatchConfigChanged() {
 // ===================================================================
 // Step 1: Feature Extraction API Call
 // ===================================================================
+async function estimateTemplateContrast() {
+  if (!state.templateOriginalB64) {
+    showToast('请先拖拽或上传 Template 模板图片', 'warning');
+    return;
+  }
+
+  const label = dom.btnAutoContrast.querySelector('span');
+  dom.btnAutoContrast.disabled = true;
+  dom.btnAutoContrast.setAttribute('aria-busy', 'true');
+  label.textContent = '分析中…';
+
+  try {
+    const resp = await fetch('/api/estimate-contrast-json', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model_base64: state.templateOriginalB64 }),
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.success) {
+      throw new Error(data.message || `HTTP error ${resp.status}`);
+    }
+
+    state.patConfig.contrast_low = data.contrast_low;
+    state.patConfig.contrast_high = data.contrast_high;
+    updateFormControls();
+    validateAllConfigs();
+    showToast(`已自动设置对比度阈值：Low ${data.contrast_low} / High ${data.contrast_high}`, 'success');
+
+    if (dom.autoExtractToggle.checked) {
+      await extractTemplateFeatures(true);
+    }
+  } catch (err) {
+    console.error(err);
+    showToast(`自动估算对比度失败: ${err.message}`, 'error');
+  } finally {
+    dom.btnAutoContrast.disabled = false;
+    dom.btnAutoContrast.removeAttribute('aria-busy');
+    label.textContent = 'Auto';
+  }
+}
+
 async function extractTemplateFeatures(isDebounced = false) {
   if (!state.templateOriginalB64) {
     if (!isDebounced) {

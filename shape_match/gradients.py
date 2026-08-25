@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 
 from shape_match.config import PAT_DEFAULTS
+from shape_match.image import to_gray, validate_image
 from shape_match.types import (
     AUTO_CANNY_HIGH_RATIO,
     AUTO_CANNY_LOW_RATIO,
@@ -15,6 +16,10 @@ from shape_match.types import (
     PatternConfig,
     UInt8Image,
 )
+
+
+_CONTRAST_BLUR_KERNEL: tuple[int, int] = (5, 5)
+_CONTRAST_STRONG_PERCENTILE: float = 85.0
 
 
 def gradient_fields(gray: UInt8Image) -> tuple[FloatImage, FloatImage, FloatImage, FloatImage]:
@@ -51,6 +56,39 @@ def auto_canny_thresholds(magnitude: FloatImage) -> tuple[int, int]:
     median = float(np.median(nonzero))
     low = int(np.clip(round(AUTO_CANNY_LOW_RATIO * median), 1, 250))
     high = int(np.clip(round(AUTO_CANNY_HIGH_RATIO * median), low + 1, 255))
+    return low, high
+
+
+def estimate_contrast_thresholds(template: np.ndarray) -> tuple[int, int]:
+    """Estimate explicit Canny low/high thresholds from a template image.
+
+    A small Gaussian blur keeps JPEG noise and thin high-contrast overlays from
+    dominating the gradient histogram.  Otsu's threshold is additionally
+    capped at the upper quantile of non-zero gradients, so a sparse watermark
+    cannot suppress a larger, lower-contrast object contour.  The low threshold
+    is set to 40% of the result for Canny hysteresis.  Flat or nearly flat
+    templates fall back to the package defaults; the returned pair is always
+    valid for :class:`PatternConfig`.
+    """
+    validated = validate_image(template, "template")
+    gray = to_gray(validated)
+    smoothed = cv2.GaussianBlur(gray, _CONTRAST_BLUR_KERNEL, 0)
+    _, _, magnitude, _ = gradient_fields(smoothed)
+    clipped = np.clip(magnitude, 0.0, 255.0).astype(np.uint8)
+    nonzero = clipped[clipped > 1]
+    if nonzero.size < 16:
+        return int(PAT_DEFAULTS["contrast_low"]), int(PAT_DEFAULTS["contrast_high"])
+
+    otsu_threshold, _ = cv2.threshold(
+        clipped, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU
+    )
+    percentile_threshold = float(np.percentile(nonzero, _CONTRAST_STRONG_PERCENTILE))
+    if otsu_threshold < 2:
+        high = int(round(percentile_threshold))
+    else:
+        high = int(round(min(float(otsu_threshold), percentile_threshold)))
+    high = int(np.clip(high, 2, 255))
+    low = int(np.clip(round(high * 0.4), 1, high - 1))
     return low, high
 
 

@@ -5,7 +5,8 @@ LINE-MOD: a template is represented by a small, spatially distributed set of
 edge points and their (polarity independent) gradient orientations. Matching
 is performed from coarse to fine over position, rotation, and scale.
 
-Only :func:`get_model_shape` and :func:`get_matched_result` are public API.
+The public API also exposes :func:`estimate_contrast_thresholds` for deriving
+explicit Canny thresholds from a template image.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ from shape_match.engine import (
     match_template,
 )
 from shape_match.features import extract_features as _extract_features
+from shape_match.gradients import estimate_contrast_thresholds
 from shape_match.image import (
     to_bgr as _to_bgr,
     to_gray as _to_gray,
@@ -53,7 +55,7 @@ from shape_match.visualization import (
     draw_model_features as _draw_model_features,
 )
 
-__all__ = ["get_model_shape", "get_matched_result"]
+__all__ = ["get_model_shape", "get_matched_result", "estimate_contrast_thresholds"]
 
 LOGGER = logging.getLogger(__name__)
 

@@ -16,7 +16,7 @@ import numpy as np
 from pydantic import BaseModel, Field
 
 import pattern_match
-from pattern_match import get_matched_result, get_model_shape
+from pattern_match import estimate_contrast_thresholds, get_matched_result, get_model_shape
 
 logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger("web_app")
@@ -293,6 +293,43 @@ async def extract_template(
         )
     except Exception as e:
         LOGGER.exception("Unexpected error in extract_template")
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "message": f"服务端异常: {str(e)}"},
+        )
+
+
+@app.post("/api/estimate-contrast-json")
+def estimate_contrast_json(req: ExtractRequest) -> JSONResponse:
+    """Estimate explicit contrast thresholds from a template image."""
+    started = time.perf_counter()
+    try:
+        if req.sample_id:
+            model, _, _, _ = get_sample_images(req.sample_id)
+        elif req.model_base64:
+            b64_data = req.model_base64.split(",", 1)[-1]
+            model = decode_image_bytes(base64.b64decode(b64_data))
+        else:
+            raise ValueError("Must provide model_base64 or sample_id")
+
+        contrast_low, contrast_high = estimate_contrast_thresholds(model)
+        duration_ms = (time.perf_counter() - started) * 1000.0
+        return JSONResponse(
+            content={
+                "success": True,
+                "contrast_low": contrast_low,
+                "contrast_high": contrast_high,
+                "duration_ms": round(duration_ms, 2),
+                "message": f"自动对比度阈值: low={contrast_low}, high={contrast_high}",
+            }
+        )
+    except (ValueError, TypeError) as e:
+        return JSONResponse(
+            status_code=400,
+            content={"success": False, "message": f"模板图像错误: {str(e)}"},
+        )
+    except Exception as e:
+        LOGGER.exception("Unexpected error in estimate_contrast_json")
         return JSONResponse(
             status_code=500,
             content={"success": False, "message": f"服务端异常: {str(e)}"},

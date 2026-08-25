@@ -1,6 +1,14 @@
 # Pattern Match API 接口文档
 
-`pattern_match` 模块提供两个公开函数：模型形状可视化和 shape-based template matching。输入图像均为 `numpy.ndarray`，支持二维灰度、BGR 和 BGRA 格式。
+`pattern_match` 模块提供模板阈值估算、模型形状可视化和 shape-based template matching。输入图像均为 `numpy.ndarray`，支持二维灰度、BGR 和 BGRA 格式。
+
+## `estimate_contrast_thresholds`
+
+```python
+def estimate_contrast_thresholds(template)
+```
+
+根据模板的 Sobel 梯度幅值分布自动估算 Canny 双阈值，返回 `(contrast_low, contrast_high)`。结果始终满足 `1 <= contrast_low < contrast_high <= 255`，可直接写入 `pat_config`；平坦模板返回默认值 `(3, 5)`。
 
 ## `get_model_shape`
 

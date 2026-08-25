@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ShapeMatch Studio - 基于梯度方向的二维形状匹配工作台</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=20260825_1">
+  <link rel="stylesheet" href="/static/css/style.css?v=20260825_2">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -194,12 +194,21 @@
             <div class="form-group-card">
               <div class="form-label-row">
                 <label for="input-contrast-low">对比度阈值范围 (Contrast Low / High)</label>
-                <div class="tooltip-container" data-tooltip="Canny/Sobel 双阈值。low 用于边缘追踪，high 用于强边缘。contrast_low 必须严格小于 contrast_high。">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="10"></circle>
-                    <line x1="12" y1="16" x2="12" y2="12"></line>
-                    <line x1="12" y1="8" x2="12.01" y2="8"></line>
-                  </svg>
+                <div class="contrast-title-actions">
+                  <button id="btn-auto-contrast" type="button" class="auto-contrast-btn" title="根据当前 Template 图像自动估算 low/high 阈值">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                      <path d="M12 3v3M12 18v3M3 12h3M18 12h3"></path>
+                      <circle cx="12" cy="12" r="4"></circle>
+                    </svg>
+                    <span>Auto</span>
+                  </button>
+                  <div class="tooltip-container" data-tooltip="Canny/Sobel 双阈值。low 用于边缘追踪，high 用于强边缘。点击 Auto 可根据当前模板内容自动估算。">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="12" cy="12" r="10"></circle>
+                      <line x1="12" y1="16" x2="12" y2="12"></line>
+                      <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                    </svg>
+                  </div>
                 </div>
               </div>
 
@@ -745,6 +754,6 @@
   </div>
 
   <!-- Scripts -->
-  <script type="module" src="/static/js/app.js?v=20260825_1"></script>
+  <script type="module" src="/static/js/app.js?v=20260825_2"></script>
 </body>
 </html>
