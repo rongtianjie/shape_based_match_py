@@ -240,7 +240,7 @@ function initEventListeners() {
   // Zoom buttons
   dom.btnZoomIn.addEventListener('click', () => adjustZoom(1.2));
   dom.btnZoomOut.addEventListener('click', () => adjustZoom(1 / 1.2));
-  dom.btnZoomFit.addEventListener('click', fitCanvasToStage);
+  dom.btnZoomFit.addEventListener('click', () => fitCanvasToStage());
   dom.btnZoom100.addEventListener('click', () => {
     state.zoom = 1.0;
     centerCanvas();
@@ -431,18 +431,21 @@ function loadTemplateImageFromSrc(src) {
     state.templateOriginalB64 = src;
     state.templateViewB64 = null;
     state.templateViewImage = null;
-    state.templateDim = { width: img.width, height: img.height };
+    const imgW = img.naturalWidth || img.width;
+    const imgH = img.naturalHeight || img.height;
+    state.templateDim = { width: imgW, height: imgH };
 
     // Update UI thumbnail
     dom.templateThumb.src = src;
-    dom.templateDimBadge.textContent = `${img.width} × ${img.height}`;
+    dom.templateDimBadge.textContent = `${imgW} × ${imgH}`;
     dom.templateEmpty.classList.add('hidden');
     dom.templatePreview.classList.remove('hidden');
 
-    showToast(`模板已载入 (${img.width}×${img.height} 像素)`, 'info');
-    if (state.currentViewMode === 'template' || state.currentStep === 1) {
-      fitCanvasToStage(img);
+    showToast(`模板已载入 (${imgW}×${imgH} 像素)`, 'info');
+    if (state.currentViewMode !== 'split') {
+      setViewMode('template');
     }
+    fitCanvasToStage(img);
     extractTemplateFeatures(true);
   };
   img.src = src;
@@ -455,20 +458,22 @@ function loadSourceImageFromSrc(src) {
     state.sourceOriginalB64 = src;
     state.matchViewB64 = null;
     state.matchViewImage = null;
-    state.sourceDim = { width: img.width, height: img.height };
+    state.matches = [];
+    const imgW = img.naturalWidth || img.width;
+    const imgH = img.naturalHeight || img.height;
+    state.sourceDim = { width: imgW, height: imgH };
 
     // Update UI thumbnail
     dom.sourceThumb.src = src;
-    dom.sourceDimBadge.textContent = `${img.width} × ${img.height}`;
+    dom.sourceDimBadge.textContent = `${imgW} × ${imgH}`;
     dom.sourceEmpty.classList.add('hidden');
     dom.sourcePreview.classList.remove('hidden');
 
-    showToast(`全景图已载入 (${img.width}×${img.height} 像素)`, 'info');
-    if (state.currentViewMode === 'match' || state.currentStep === 2) {
-      fitCanvasToStage(img);
-    } else {
-      renderCurrentView();
+    showToast(`全景图已载入 (${imgW}×${imgH} 像素)`, 'info');
+    if (state.currentViewMode !== 'split') {
+      setViewMode('match');
     }
+    fitCanvasToStage(img);
   };
   img.src = src;
 }
@@ -478,6 +483,7 @@ function clearTemplate() {
   state.templateImage = null;
   state.templateOriginalB64 = null;
   state.templateViewB64 = null;
+  state.templateViewImage = null;
   state.templateDim = { width: 0, height: 0 };
   state.featureCount = 0;
 
@@ -497,6 +503,7 @@ function clearSource() {
   state.sourceImage = null;
   state.sourceOriginalB64 = null;
   state.matchViewB64 = null;
+  state.matchViewImage = null;
   state.sourceDim = { width: 0, height: 0 };
   state.matches = [];
 
@@ -1172,52 +1179,74 @@ function centerCanvas() {
   const img = getActiveDisplayImage();
   if (!img) return;
 
-  const stageW = stage.clientWidth || 600;
-  const stageH = stage.clientHeight || 500;
-  state.panX = Math.round((stageW - img.width * state.zoom) / 2);
-  state.panY = Math.round((stageH - img.height * state.zoom) / 2);
+  const imgW = img.naturalWidth || img.width;
+  const imgH = img.naturalHeight || img.height;
+  if (!imgW || !imgH) return;
+
+  const stageW = stage.clientWidth || (stage.getBoundingClientRect && stage.getBoundingClientRect().width) || 600;
+  const stageH = stage.clientHeight || (stage.getBoundingClientRect && stage.getBoundingClientRect().height) || 500;
+  state.panX = Math.round((stageW - imgW * state.zoom) / 2);
+  state.panY = Math.round((stageH - imgH * state.zoom) / 2);
 }
 
 function fitCanvasToStage(targetImg = null) {
+  if (state.currentViewMode === 'split') {
+    renderSplitCanvas();
+    return;
+  }
+
   const stage = dom.singleViewport;
   if (!stage) return;
-  const img = targetImg || getActiveDisplayImage();
-  if (!img || !img.width || !img.height) {
+
+  const isValidImg = targetImg && !(targetImg instanceof Event) && (targetImg.naturalWidth || targetImg.width);
+  const img = isValidImg ? targetImg : getActiveDisplayImage();
+  if (!img) {
     renderCurrentView();
     return;
   }
 
-  const stageW = stage.clientWidth || 600;
-  const stageH = stage.clientHeight || 500;
+  const imgW = img.naturalWidth || img.width;
+  const imgH = img.naturalHeight || img.height;
+  if (!imgW || !imgH) {
+    renderCurrentView();
+    return;
+  }
+
+  const stageW = stage.clientWidth || (stage.getBoundingClientRect && stage.getBoundingClientRect().width) || 600;
+  const stageH = stage.clientHeight || (stage.getBoundingClientRect && stage.getBoundingClientRect().height) || 500;
   const pad = 24; // comfortable margins around viewport
   const availW = Math.max(stageW - pad * 2, 40);
   const availH = Math.max(stageH - pad * 2, 40);
 
-  const scaleX = availW / img.width;
-  const scaleY = availH / img.height;
+  const scaleX = availW / imgW;
+  const scaleY = availH / imgH;
   
   // Calculate proportional scale to comfortably fit entirely within viewport
   let fitScale = Math.min(scaleX, scaleY);
   
-  // For small crops, scale up cleanly (up to 4.0x); for full size images, scale down proportionally
-  fitScale = Math.min(Math.max(fitScale, 0.05), 4.0);
+  // Allow scaling up for small templates or down for large source images within application zoom range
+  fitScale = Math.min(Math.max(fitScale, 0.01), 30.0);
 
   state.zoom = fitScale;
-  state.panX = Math.round((stageW - img.width * state.zoom) / 2);
-  state.panY = Math.round((stageH - img.height * state.zoom) / 2);
+  state.panX = Math.round((stageW - imgW * state.zoom) / 2);
+  state.panY = Math.round((stageH - imgH * state.zoom) / 2);
 
   renderCurrentView();
 }
 
 function getActiveDisplayImage() {
   if (state.currentViewMode === 'template') {
-    return state.showOverlayLayer && state.templateViewImage
+    return (state.showOverlayLayer && state.templateViewImage)
       ? state.templateViewImage
-      : state.templateImage;
-  } else {
-    return state.showOverlayLayer && state.matchViewImage
+      : (state.templateImage || null);
+  } else if (state.currentViewMode === 'match') {
+    return (state.showOverlayLayer && state.matchViewImage)
       ? state.matchViewImage
-      : state.sourceImage;
+      : (state.sourceImage || null);
+  } else {
+    return (state.showOverlayLayer && state.matchViewImage)
+      ? state.matchViewImage
+      : (state.sourceImage || state.templateImage || null);
   }
 }
 
@@ -1239,12 +1268,15 @@ function updateCoordinateProbe(e) {
     return;
   }
 
-  dom.probeImageDim.textContent = `${img.width} × ${img.height} px`;
+  const imgW = img.naturalWidth || img.width;
+  const imgH = img.naturalHeight || img.height;
+
+  dom.probeImageDim.textContent = `${imgW} × ${imgH} px`;
 
   const imgX = Math.floor((mouseX - state.panX) / state.zoom);
   const imgY = Math.floor((mouseY - state.panY) / state.zoom);
 
-  if (imgX >= 0 && imgX < img.width && imgY >= 0 && imgY < img.height) {
+  if (imgX >= 0 && imgX < imgW && imgY >= 0 && imgY < imgH) {
     dom.probeCoordXy.textContent = `X: ${imgX}, Y: ${imgY}`;
   } else {
     dom.probeCoordXy.textContent = 'X: --, Y: -- (越界)';
@@ -1348,11 +1380,15 @@ function renderSplitCanvas() {
       ? state.templateViewImage
       : state.templateImage;
 
-    const scale = Math.min(box.clientWidth / img.width, box.clientHeight / img.height) * 0.9;
-    const px = (box.clientWidth - img.width * scale) / 2;
-    const py = (box.clientHeight - img.height * scale) / 2;
+    const imgW = img.naturalWidth || img.width;
+    const imgH = img.naturalHeight || img.height;
+    if (imgW && imgH) {
+      const scale = Math.min(box.clientWidth / imgW, box.clientHeight / imgH) * 0.9;
+      const px = (box.clientWidth - imgW * scale) / 2;
+      const py = (box.clientHeight - imgH * scale) / 2;
 
-    ctx.drawImage(img, px, py, img.width * scale, img.height * scale);
+      ctx.drawImage(img, px, py, imgW * scale, imgH * scale);
+    }
   }
 
   // Render Right: Match
@@ -1374,11 +1410,15 @@ function renderSplitCanvas() {
       ? state.matchViewImage
       : state.sourceImage;
 
-    const scale = Math.min(box.clientWidth / img.width, box.clientHeight / img.height) * 0.95;
-    const px = (box.clientWidth - img.width * scale) / 2;
-    const py = (box.clientHeight - img.height * scale) / 2;
+    const imgW = img.naturalWidth || img.width;
+    const imgH = img.naturalHeight || img.height;
+    if (imgW && imgH) {
+      const scale = Math.min(box.clientWidth / imgW, box.clientHeight / imgH) * 0.95;
+      const px = (box.clientWidth - imgW * scale) / 2;
+      const py = (box.clientHeight - imgH * scale) / 2;
 
-    ctx.drawImage(img, px, py, img.width * scale, img.height * scale);
+      ctx.drawImage(img, px, py, imgW * scale, imgH * scale);
+    }
   }
 }
 
