@@ -48,6 +48,27 @@ _COARSE_SCALE_STEP = 0.05
 _FINE_SCALE_STEP = 0.01
 _NMS_IOU = 0.5
 
+_AUTO_CANNY_LOW_RATIO = 0.65
+_AUTO_CANNY_HIGH_RATIO = 1.30
+
+_FG_BORDER_FRACTION = 0.07
+_FG_BORDER_MIN = 3
+_FG_BORDER_MAX = 20
+_FG_MAX_SIGMA = 20.0
+_FG_MIN_SIGMA = 6.0
+_FG_Z_THRESHOLD = 4.0
+_FG_MIN_COMPONENT_AREA_FRAC = 0.005
+_FG_MAX_COMPONENT_AREA_FRAC = 0.9
+_FG_MAX_UNION_AREA_FRAC = 0.85
+_FG_CENTRAL_FRAC = 0.4
+_FG_BAND_RADIUS_FRACTION = 0.05
+_FG_BAND_RADIUS_MIN = 3
+_FG_BAND_RADIUS_MAX = 15
+_FG_CORE_KERNEL = np.ones((5, 5), np.uint8)
+
+_APPEARANCE_MIN_SCORE = 0.3
+_APPEARANCE_MASK_MIN_PIXELS = 16
+
 FloatImage = NDArray[np.float32]
 UInt8Image = NDArray[np.uint8]
 F = TypeVar("F", bound=Callable[..., Any])
@@ -74,6 +95,7 @@ class _PatternConfig:
     angle_start: float
     angle_extent: float
     num_levels: int
+    auto_contrast: bool = False
 
 
 @dataclass(frozen=True)
@@ -92,6 +114,8 @@ class _ModelFeatures:
     labels: UInt8Image
     width: int
     height: int
+    template_gray: UInt8Image
+    appearance_mask: UInt8Image | None
 
 
 @dataclass(frozen=True)
@@ -142,6 +166,7 @@ def _parse_pattern_config(config: Mapping[str, Any] | None) -> _PatternConfig:
     unknown = set(supplied) - set(_PAT_DEFAULTS)
     if unknown:
         raise ValueError(f"unknown pat_config keys: {', '.join(sorted(unknown))}")
+    auto_contrast = "contrast_low" not in supplied and "contrast_high" not in supplied
     values = {**_PAT_DEFAULTS, **supplied}
 
     contrast_low = _integer(values["contrast_low"], "contrast_low")
@@ -163,7 +188,7 @@ def _parse_pattern_config(config: Mapping[str, Any] | None) -> _PatternConfig:
     if num_levels not in (0, 1):
         raise ValueError("num_levels must be 0 or 1")
 
-    return _PatternConfig(contrast_low, contrast_high, angle_start, angle_extent, num_levels)
+    return _PatternConfig(contrast_low, contrast_high, angle_start, angle_extent, num_levels, auto_contrast)
 
 
 def _parse_match_config(config: Mapping[str, Any] | None) -> _MatchConfig:
@@ -251,8 +276,22 @@ def _quantize_orientations(gx: FloatImage, gy: FloatImage) -> UInt8Image:
     return np.mod(labels.astype(np.int16), _NUM_ORIENTATIONS).astype(np.uint8)
 
 
-def _consistent_edges(gray: UInt8Image, low: int, high: int) -> tuple[UInt8Image, FloatImage, FloatImage, FloatImage]:
+def _auto_canny_thresholds(magnitude: FloatImage) -> tuple[int, int]:
+    nonzero = magnitude[magnitude > 1.0]
+    if nonzero.size < 16:
+        return int(_PAT_DEFAULTS["contrast_low"]), int(_PAT_DEFAULTS["contrast_high"])
+    median = float(np.median(nonzero))
+    low = int(np.clip(round(_AUTO_CANNY_LOW_RATIO * median), 1, 250))
+    high = int(np.clip(round(_AUTO_CANNY_HIGH_RATIO * median), low + 1, 255))
+    return low, high
+
+
+def _consistent_edges(gray: UInt8Image, config: _PatternConfig) -> tuple[UInt8Image, FloatImage, FloatImage, FloatImage]:
     gx, gy, magnitude, _ = _gradient_fields(gray)
+    if config.auto_contrast:
+        low, high = _auto_canny_thresholds(magnitude)
+    else:
+        low, high = config.contrast_low, config.contrast_high
     edges = cv2.Canny(gray, low, high, apertureSize=3, L2gradient=True) > 0
     labels = _quantize_orientations(gx, gy)
 
@@ -298,8 +337,96 @@ def _select_scattered(points_xy: NDArray[np.int32], strengths: FloatImage, limit
     return np.asarray(best, dtype=np.int32)
 
 
-def _extract_features(gray: UInt8Image, config: _PatternConfig) -> _ModelFeatures | None:
-    edge_mask, gx, gy, magnitude = _consistent_edges(gray, config.contrast_low, config.contrast_high)
+def _segment_foreground(gray: UInt8Image, bgr: UInt8Image) -> UInt8Image | None:
+    """Detect a centrally-located foreground blob using border-ring background stats.
+
+    Returns a 0/1 uint8 mask, or ``None`` when the border doesn't approximate a
+    uniform background (template already tightly crops the target) or no
+    plausible blob is found -- callers must fall back to whole-image behaviour.
+    """
+    height, width = gray.shape
+    border = int(np.clip(round(_FG_BORDER_FRACTION * min(height, width)), _FG_BORDER_MIN, _FG_BORDER_MAX))
+    if height <= 2 * border or width <= 2 * border:
+        return None
+
+    ring_mask = np.zeros((height, width), dtype=bool)
+    ring_mask[:border, :] = True
+    ring_mask[-border:, :] = True
+    ring_mask[:, :border] = True
+    ring_mask[:, -border:] = True
+
+    bgr_f = bgr.astype(np.float32)
+    z_max = np.zeros((height, width), dtype=np.float32)
+    for channel in range(3):
+        values = bgr_f[:, :, channel]
+        ring_values = values[ring_mask]
+        median = float(np.median(ring_values))
+        sigma = 1.4826 * float(np.median(np.abs(ring_values - median)))
+        if sigma > _FG_MAX_SIGMA:
+            return None
+        sigma = max(sigma, _FG_MIN_SIGMA)
+        np.maximum(z_max, np.abs(values - median) / sigma, out=z_max)
+
+    candidate = (z_max > _FG_Z_THRESHOLD).astype(np.uint8)
+    candidate = cv2.morphologyEx(candidate, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+
+    num_labels, labels_img, stats, centroids = cv2.connectedComponentsWithStats(candidate, connectivity=8)
+    if num_labels <= 1:
+        return None
+
+    image_area = float(height * width)
+    centre_x, centre_y = (width - 1) / 2.0, (height - 1) / 2.0
+    max_dist_x = _FG_CENTRAL_FRAC * width
+    max_dist_y = _FG_CENTRAL_FRAC * height
+
+    union = np.zeros((height, width), dtype=np.uint8)
+    for label in range(1, num_labels):
+        left, top, comp_w, comp_h, area = stats[label]
+        area_frac = area / image_area
+        if not (_FG_MIN_COMPONENT_AREA_FRAC <= area_frac <= _FG_MAX_COMPONENT_AREA_FRAC):
+            continue
+        centroid_x, centroid_y = centroids[label]
+        if abs(centroid_x - centre_x) > max_dist_x or abs(centroid_y - centre_y) > max_dist_y:
+            continue
+        touches_border = left <= 0 or top <= 0 or left + comp_w >= width or top + comp_h >= height
+        if touches_border:
+            # A hairline bridge (e.g. a repeated watermark stroke) can connect an
+            # otherwise-central blob to the border under 8-connectivity. Keep the
+            # component only if a solid core survives a stronger erosion and that
+            # core itself stays clear of the border -- a thin tendril alone won't.
+            component_mask = (labels_img == label).astype(np.uint8)
+            core = cv2.erode(component_mask, _FG_CORE_KERNEL)
+            if not np.any(core):
+                continue
+            core_ys, core_xs = np.nonzero(core)
+            if core_xs.min() <= 0 or core_ys.min() <= 0 or core_xs.max() >= width - 1 or core_ys.max() >= height - 1:
+                continue
+        union[labels_img == label] = 1
+
+    if not np.any(union):
+        return None
+    if np.count_nonzero(union) / image_area > _FG_MAX_UNION_AREA_FRAC:
+        return None
+    return union
+
+
+def _extract_features(gray: UInt8Image, config: _PatternConfig, bgr: UInt8Image) -> _ModelFeatures | None:
+    edge_mask, gx, gy, magnitude = _consistent_edges(gray, config)
+    height, width = gray.shape
+
+    appearance_mask: UInt8Image | None = None
+    blob = _segment_foreground(gray, bgr)
+    if blob is not None:
+        radius = int(np.clip(round(_FG_BAND_RADIUS_FRACTION * min(height, width)), _FG_BAND_RADIUS_MIN, _FG_BAND_RADIUS_MAX))
+        kernel = np.ones((2 * radius + 1, 2 * radius + 1), np.uint8)
+        dilated = cv2.dilate(blob, kernel) > 0
+        eroded = cv2.erode(blob, kernel) > 0
+        band = (dilated & ~eroded).astype(np.uint8)
+        banded_edges = edge_mask & band
+        if int(np.count_nonzero(banded_edges)) >= _MIN_FEATURES:
+            edge_mask = banded_edges
+        appearance_mask = dilated.astype(np.uint8)
+
     ys, xs = np.nonzero(edge_mask)
     if len(xs) < _MIN_FEATURES:
         return None
@@ -314,14 +441,13 @@ def _extract_features(gray: UInt8Image, config: _PatternConfig) -> _ModelFeature
     gradients = np.column_stack((gx[ys, xs] / magnitudes, gy[ys, xs] / magnitudes)).astype(np.float32)
     labels = _quantize_orientations(gradients[:, 0], gradients[:, 1])
 
-    height, width = gray.shape
     centre = np.array([(width - 1) / 2.0, (height - 1) / 2.0], dtype=np.float32)
     offsets = points.astype(np.float32) - centre
-    return _ModelFeatures(offsets, gradients, points, labels, width, height)
+    return _ModelFeatures(offsets, gradients, points, labels, width, height, gray, appearance_mask)
 
 
 def _orientation_response_maps(gray: UInt8Image, config: _PatternConfig) -> FloatImage:
-    edge_mask, gx, gy, _ = _consistent_edges(gray, config.contrast_low, config.contrast_high)
+    edge_mask, gx, gy, _ = _consistent_edges(gray, config)
     source_labels = _quantize_orientations(gx, gy)
     responses = np.zeros((_NUM_ORIENTATIONS, gray.shape[0], gray.shape[1]), dtype=np.float32)
 
@@ -467,6 +593,8 @@ def _coarse_search(
         features.labels,
         max(1, int(round(features.width * image_factor))),
         max(1, int(round(features.height * image_factor))),
+        features.template_gray,
+        features.appearance_mask,
     )
 
     coarse_threshold = max(0.02, matching.min_score * 0.8)
@@ -593,6 +721,58 @@ def _polygon_iou(first: FloatImage, second: FloatImage) -> float:
     return float(intersection) / union if union > 0.0 else 0.0
 
 
+def _resample_candidate_patch(source_gray: UInt8Image, features: _ModelFeatures, candidate: _Candidate) -> UInt8Image:
+    """Resample the source region a candidate covers back into template space."""
+    rotation = _rotation_matrix(candidate.angle, candidate.scale)
+    template_centre = np.array([(features.width - 1) / 2.0, (features.height - 1) / 2.0], dtype=np.float32)
+    candidate_centre = np.array([candidate.cx, candidate.cy], dtype=np.float32)
+    translation = candidate_centre - rotation @ template_centre
+    matrix = np.zeros((2, 3), dtype=np.float32)
+    matrix[:, :2] = rotation
+    matrix[:, 2] = translation
+    return cv2.warpAffine(
+        source_gray,
+        matrix,
+        (features.width, features.height),
+        flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP,
+        borderMode=cv2.BORDER_REPLICATE,
+    )
+
+
+def _appearance_score(template_gray: UInt8Image, appearance_mask: UInt8Image | None, patch_gray: UInt8Image) -> float:
+    """Foreground/background contrast-ratio consistency between the template and a resampled patch.
+
+    Real-world illumination, JPEG drift and near-uniform fill colours make raw
+    pixel-to-pixel correlation an unreliable appearance check even for genuinely
+    correct matches (interior texture rarely repeats between two crops of the
+    same physical mark). Instead this compares each image's own foreground-vs-
+    background mean brightness gap: a genuine instance of the mark still shows a
+    contrast blob shaped like the template even under different lighting, while
+    an unrelated flat/textureless region does not. The ratio is symmetric and
+    uses ``abs`` so polarity-inverted matches (deliberately supported elsewhere)
+    score the same as direct matches. Returns 1.0 (neutral pass) when no
+    reliable foreground mask is available for the template.
+    """
+    if appearance_mask is None:
+        return 1.0
+    mask = appearance_mask.astype(bool)
+    background = ~mask
+    if int(np.count_nonzero(mask)) < _APPEARANCE_MASK_MIN_PIXELS or int(np.count_nonzero(background)) < _APPEARANCE_MASK_MIN_PIXELS:
+        return 1.0
+
+    template_contrast = abs(
+        float(template_gray[mask].astype(np.float32).mean()) - float(template_gray[background].astype(np.float32).mean())
+    )
+    patch_contrast = abs(
+        float(patch_gray[mask].astype(np.float32).mean()) - float(patch_gray[background].astype(np.float32).mean())
+    )
+    if template_contrast <= 1e-3:
+        return 1.0
+    if patch_contrast <= 1e-3:
+        return 0.0
+    return min(template_contrast, patch_contrast) / max(template_contrast, patch_contrast)
+
+
 def _nms(candidates: list[_Candidate], features: _ModelFeatures, limit: int) -> list[_Candidate]:
     selected: list[_Candidate] = []
     polygons: list[FloatImage] = []
@@ -652,7 +832,7 @@ def get_model_shape(model: np.ndarray, pat_config: Mapping[str, Any] = {}) -> np
 
     pattern = _parse_pattern_config(pat_config)
     model_array = _validate_image(model, "model")
-    features = _extract_features(_to_gray(model_array), pattern)
+    features = _extract_features(_to_gray(model_array), pattern, _to_bgr(model_array))
     if features is None:
         LOGGER.warning("model feature extraction failed: fewer than %d usable edge points", _MIN_FEATURES)
         return None
@@ -679,7 +859,7 @@ def get_matched_result(
     source_array = _validate_image(src, "src")
     model_gray = _to_gray(model_array)
     source_gray = _to_gray(source_array)
-    features = _extract_features(model_gray, pattern)
+    features = _extract_features(model_gray, pattern, _to_bgr(model_array))
     if features is None:
         LOGGER.warning("matching skipped: model contains fewer than %d usable edge points", _MIN_FEATURES)
         return [], None
@@ -700,7 +880,11 @@ def get_matched_result(
     refined: list[_Candidate] = []
     for candidate in coarse:
         result = _refine_candidate(candidate, features, full_responses, pattern, matching)
-        if result is not None and result.score >= matching.min_score:
+        if result is None or result.score < matching.min_score:
+            continue
+        patch = _resample_candidate_patch(source_gray, features, result)
+        appearance = _appearance_score(features.template_gray, features.appearance_mask, patch)
+        if appearance >= _APPEARANCE_MIN_SCORE:
             refined.append(result)
     if not refined:
         return [], None

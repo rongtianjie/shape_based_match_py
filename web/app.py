@@ -268,7 +268,9 @@ async def extract_template(
             )
 
         parsed_config = pattern_match._parse_pattern_config(pat_config)
-        features = pattern_match._extract_features(pattern_match._to_gray(model), parsed_config)
+        features = pattern_match._extract_features(
+            pattern_match._to_gray(model), parsed_config, pattern_match._to_bgr(model)
+        )
         feature_count = len(features.points) if features is not None else 0
 
         return JSONResponse(
@@ -332,7 +334,9 @@ def extract_template_json(req: ExtractRequest) -> JSONResponse:
             )
 
         parsed_config = pattern_match._parse_pattern_config(pat_config)
-        features = pattern_match._extract_features(pattern_match._to_gray(model), parsed_config)
+        features = pattern_match._extract_features(
+            pattern_match._to_gray(model), parsed_config, pattern_match._to_bgr(model)
+        )
         feature_count = len(features.points) if features is not None else 0
 
         return JSONResponse(
