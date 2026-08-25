@@ -90,12 +90,25 @@ def coarse_angles(config: PatternConfig) -> list[float]:
     """Generate coarse search angle sequence based on pattern configuration."""
     if math.isclose(config.angle_extent, 0.0):
         return [config.angle_start]
-    return sample_interval(
+    values = sample_interval(
         config.angle_start,
         config.angle_start + config.angle_extent,
         COARSE_ANGLE_STEP,
         cyclic=math.isclose(config.angle_extent, 360.0),
     )
+
+    # The default interval is [-5, 5] degrees.  Anchoring a 10-degree grid at
+    # the lower bound would otherwise sample only the two endpoints and miss
+    # the most common (zero-rotation) pose entirely.  Add zero whenever it is
+    # inside the configured interval (including a full-turn interval); keep
+    # the list sorted for deterministic CPU/GPU candidate ordering.
+    stop = config.angle_start + config.angle_extent
+    if (config.angle_start <= 0.0 <= stop) and not any(
+        math.isclose(value, 0.0, abs_tol=1e-7) for value in values
+    ):
+        values.append(0.0)
+        values.sort()
+    return values
 
 
 def coarse_scales(config: MatchConfig) -> list[float]:

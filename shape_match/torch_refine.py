@@ -1,8 +1,8 @@
 import numpy as np
-import cv2
 
 from shape_match.types import Candidate, MatchConfig, ModelFeatures, PatternConfig, ResponseImage
 from shape_match.matcher import valid_centres, fine_pose_values
+from shape_match.gradients import quantize_orientations
 
 try:
     import torch
@@ -80,10 +80,12 @@ def refine_candidates_pytorch(
         all_gradients = np.einsum('mk,njk->nmj', features.unit_gradients, dir_transforms)
         gx = all_gradients[:, :, 0].ravel()
         gy = all_gradients[:, :, 1].ravel()
-        phase_angles = cv2.phase(gx.astype(np.float32), gy.astype(np.float32), angleInDegrees=True)
-        NUM_ORIENTATIONS = 8
-        labels = np.round(phase_angles / (360.0 / NUM_ORIENTATIONS)).astype(np.uint8)
-        labels[labels == NUM_ORIENTATIONS] = 0
+        # Keep the GPU refinement labels exactly aligned with the CPU path.
+        # The response maps use polarity-independent, half-bin shifted
+        # quantization over pi; rounding 0..360 degree phases into 45 degree
+        # bins (the previous implementation) produced different labels and
+        # could score a real match as background.
+        labels = quantize_orientations(gx.astype(np.float32), gy.astype(np.float32))
         labels = labels.reshape(N, -1)
         
         K = len(centres)

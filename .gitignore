@@ -183,3 +183,4 @@ cython_debug/
 .cursorindexingignore
 
 test_data/
+test_data_failed/

@@ -134,12 +134,36 @@ class ShapeMatcher:
                 if result is not None and result.score >= self.match_config.min_score:
                     refined.append(result)
 
-        final_candidates: list[Candidate] = []
+        # Appearance is only a verification signal.  A template and its target
+        # can legitimately have very different foreground/background colours
+        # (for example, the white/green mark versus the orange/yellow-green
+        # mark in ``test_data_failed``), while their edge geometry remains an
+        # excellent match.  Keep the legacy appearance gate for ordinary
+        # candidates, but allow a clearly dominant shape score through it.  The
+        # margin is deliberately small so a weak periodic-texture response is
+        # still rejected when a similarly strong candidate has better
+        # appearance consistency.
+        scored_candidates: list[tuple[Candidate, float]] = []
         for result in refined:
             patch = resample_candidate_patch(source_gray, features, result)
             app_score = appearance_score(features.template_gray, features.appearance_mask, patch)
-            if app_score >= APPEARANCE_MIN_SCORE:
-                final_candidates.append(result)
+            scored_candidates.append((result, app_score))
+
+        if not scored_candidates:
+            return [], None
+
+        best_shape_score = max(result.score for result, _ in scored_candidates)
+        shape_bypass_score = max(0.65, self.match_config.min_score + 0.15)
+        shape_bypass_margin = 0.05
+        final_candidates = [
+            result
+            for result, app_score in scored_candidates
+            if app_score >= APPEARANCE_MIN_SCORE
+            or (
+                result.score >= shape_bypass_score
+                and result.score >= best_shape_score - shape_bypass_margin
+            )
+        ]
 
         if not final_candidates:
             return [], None
