@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ShapeMatch Studio - 基于梯度方向的二维形状匹配工作台</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body class="theme-light">
+  <!-- Main Application Wrapper -->
+  <div id="app" class="app-container">
+    
+    <!-- Top Navigation Header -->
+    <header class="app-header">
+      <div class="header-left">
+        <div class="brand">
+          <div class="brand-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+              <polyline points="2 17 12 22 22 17"></polyline>
+              <polyline points="2 12 12 17 22 12"></polyline>
+            </svg>
+          </div>
+          <div class="brand-text">
+            <span class="brand-title">ShapeMatch <span class="accent-text">Studio</span></span>
+            <span class="brand-badge">Pure OpenCV / Halcon-like</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step Flow Wizard in Header -->
+      <nav class="workflow-steps" aria-label="操作步骤">
+        <button id="step-btn-1" class="step-nav-btn active" data-step="1">
+          <span class="step-num">1</span>
+          <span class="step-label">
+            <span class="step-name">模板特征提取</span>
+            <span class="step-desc">调整 pat_config</span>
+          </span>
+        </button>
+        <div class="step-divider">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="9 18 15 12 9 6"></polyline>
+          </svg>
+        </div>
+        <button id="step-btn-2" class="step-nav-btn" data-step="2">
+          <span class="step-num">2</span>
+          <span class="step-label">
+            <span class="step-name">全图目标匹配</span>
+            <span class="step-desc">调整 match_config</span>
+          </span>
+        </button>
+      </nav>
+
+      <div class="header-right">
+        <!-- Preset Demo Selector -->
+        <div class="preset-selector-wrapper">
+          <label for="sample-select" class="visually-hidden">加载预置示例</label>
+          <div class="select-icon-wrapper">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              <circle cx="8.5" cy="8.5" r="1.5"></circle>
+              <polyline points="21 15 16 10 5 21"></polyline>
+            </svg>
+            <select id="sample-select" class="custom-select">
+              <option value="">-- 加载示例场景 --</option>
+              <option value="meiqua_case2">🔩 工业零件 (Meiqua Benchmark 2)</option>
+              <option value="synthetic_case">📐 多姿态合成图形 (Synthetic)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Theme Toggle -->
+        <button id="theme-toggle-btn" class="icon-btn" title="切换深色/浅色主题">
+          <svg class="theme-icon-dark" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+          <svg class="theme-icon-light" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="5"></circle>
+            <line x1="12" y1="1" x2="12" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="23"></line>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+            <line x1="1" y1="12" x2="3" y2="12"></line>
+            <line x1="21" y1="12" x2="23" y2="12"></line>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+          </svg>
+        </button>
+
+        <!-- Reset Button -->
+        <button id="reset-all-btn" class="icon-btn" title="重置全部参数与图像">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+            <path d="M3 3v5h5"></path>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Workspace Layout -->
+    <main class="workbench-layout">
+      
+      <!-- Left Sidebar: Controls & Parameters -->
+      <aside class="control-sidebar">
+        
+        <!-- Image Upload Section -->
+        <section class="panel-card upload-section">
+          <div class="panel-card-header">
+            <span class="card-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+              </svg>
+              图像上传区
+            </span>
+            <span class="card-subtitle">支持拖拽、点击或 Ctrl+V 粘贴</span>
+          </div>
+
+          <div class="upload-dropzones-grid">
+            <!-- Template Upload Box -->
+            <div id="dropzone-template" class="dropzone-box" tabindex="0">
+              <input type="file" id="template-file-input" accept="image/*" class="file-input-hidden">
+              <div class="dropzone-empty" id="template-dropzone-empty">
+                <div class="dropzone-icon">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+                    <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                    <path d="M20.4 14.5L16 10 4 20"></path>
+                  </svg>
+                </div>
+                <div class="dropzone-text">
+                  <strong>拖拽 Template 模板</strong>
+                  <span>紧密包围待测目标的图</span>
+                </div>
+              </div>
+              <div class="dropzone-preview hidden" id="template-dropzone-preview">
+                <img id="template-thumb-img" src="" alt="Template Preview">
+                <div class="dropzone-overlay">
+                  <span id="template-dim-badge" class="dim-badge">0 × 0</span>
+                  <button id="clear-template-btn" class="thumb-clear-btn" title="清除模板">&times;</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Source Upload Box -->
+            <div id="dropzone-source" class="dropzone-box" tabindex="0">
+              <input type="file" id="source-file-input" accept="image/*" class="file-input-hidden">
+              <div class="dropzone-empty" id="source-dropzone-empty">
+                <div class="dropzone-icon">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
+                    <line x1="7" y1="2" x2="7" y2="22"></line>
+                    <line x1="17" y1="2" x2="17" y2="22"></line>
+                    <line x1="2" y1="12" x2="22" y2="12"></line>
+                    <line x1="2" y1="7" x2="7" y2="7"></line>
+                    <line x1="2" y1="17" x2="7" y2="17"></line>
+                    <line x1="17" y1="17" x2="22" y2="17"></line>
+                    <line x1="17" y1="7" x2="22" y2="7"></line>
+                  </svg>
+                </div>
+                <div class="dropzone-text">
+                  <strong>拖拽 Source 全图</strong>
+                  <span>待搜索的全尺寸场景图</span>
+                </div>
+              </div>
+              <div class="dropzone-preview hidden" id="source-dropzone-preview">
+                <img id="source-thumb-img" src="" alt="Source Preview">
+                <div class="dropzone-overlay">
+                  <span id="source-dim-badge" class="dim-badge">0 × 0</span>
+                  <button id="clear-source-btn" class="thumb-clear-btn" title="清除全景图">&times;</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- STEP 1 PANEL: pat_config Controls -->
+        <section id="step1-panel" class="panel-card step-panel active">
+          <div class="panel-card-header">
+            <div class="card-title-group">
+              <span class="step-badge">步骤一</span>
+              <h2 class="card-title">模板特征提取配置 <code>(pat_config)</code></h2>
+            </div>
+            <p class="card-subtitle">精细调节边缘双阈值与搜索角度范围，验证梯度特征点提取质量</p>
+          </div>
+
+          <form id="pat-config-form" class="config-form" onsubmit="return false;">
+            
+            <!-- Contrast Range Dual Controls -->
+            <div class="form-group-card">
+              <div class="form-label-row">
+                <label for="input-contrast-low">对比度阈值范围 (Contrast Low / High)</label>
+                <div class="tooltip-container" data-tooltip="Canny/Sobel 双阈值。low 用于边缘追踪，high 用于强边缘。contrast_low 必须严格小于 contrast_high。">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="16" x2="12" y2="12"></line>
+                    <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                  </svg>
+                </div>
+              </div>
+
+              <!-- Contrast Low -->
+              <div class="control-row with-steppers">
+                <span class="control-name">低阈值 (Low):</span>
+                <div class="stepper-slider-group">
+                  <button type="button" class="micro-step-btn" data-step-target="contrast_low" data-step-dir="-1" title="减少 1">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  </button>
+                  <input type="range" id="slider-contrast-low" min="1" max="254" value="10" class="custom-slider">
+                  <button type="button" class="micro-step-btn" data-step-target="contrast_low" data-step-dir="1" title="增加 1">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  </button>
+                </div>
+                <input type="number" id="input-contrast-low" min="1" max="254" value="10" class="number-input">
+              </div>
+
+              <!-- Contrast High -->
+              <div class="control-row with-steppers">
+                <span class="control-name">高阈值 (High):</span>
+                <div class="stepper-slider-group">
+                  <button type="button" class="micro-step-btn" data-step-target="contrast_high" data-step-dir="-1" title="减少 1">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  </button>
+                  <input type="range" id="slider-contrast-high" min="2" max="255" value="30" class="custom-slider">
+                  <button type="button" class="micro-step-btn" data-step-target="contrast_high" data-step-dir="1" title="增加 1">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  </button>
+                </div>
+                <input type="number" id="input-contrast-high" min="2" max="255" value="30" class="number-input">
+              </div>
+
+              <div id="contrast-validation-msg" class="validation-msg hidden"></div>
+            </div>
+
+            <!-- Angle Range Controls -->
+            <div class="form-group-card">
+              <div class="form-label-row">
+                <label>角度搜索范围 (Angle Start & Extent)</label>
+                <div class="tooltip-container" data-tooltip="目标在全图中的可能旋转范围。start 为起始角，extent 为跨度（0 表示固定角度，360 表示全向）。start + extent ≤ 360。">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="16" x2="12" y2="12"></line>
+                    <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                  </svg>
+                </div>
+              </div>
+
+              <!-- Angle Quick Presets -->
+              <div class="preset-chips-row">
+                <button type="button" class="preset-chip" data-angle-start="0" data-angle-extent="0">0° 固定</button>
+                <button type="button" class="preset-chip" data-angle-start="-15" data-angle-extent="30">±15° 纠偏</button>
+                <button type="button" class="preset-chip" data-angle-start="-45" data-angle-extent="90">±45° 常用</button>
+                <button type="button" class="preset-chip" data-angle-start="-180" data-angle-extent="360">360° 全向</button>
+              </div>
+
+              <!-- Angle Start -->
+              <div class="control-row with-steppers">
+                <span class="control-name">起始角度 (°):</span>
+                <div class="stepper-slider-group">
+                  <button type="button" class="micro-step-btn" data-step-target="angle_start" data-step-dir="-1" title="减少 1°">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  </button>
+                  <input type="range" id="slider-angle-start" min="-360" max="360" step="1" value="0" class="custom-slider">
+                  <button type="button" class="micro-step-btn" data-step-target="angle_start" data-step-dir="1" title="增加 1°">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  </button>
+                </div>
+                <input type="number" id="input-angle-start" min="-360" max="360" step="0.5" value="0" class="number-input">
+              </div>
+
+              <!-- Angle Extent -->
+              <div class="control-row with-steppers">
+                <span class="control-name">旋转跨度 (°):</span>
+                <div class="stepper-slider-group">
+                  <button type="button" class="micro-step-btn" data-step-target="angle_extent" data-step-dir="-1" title="减少 1°">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  </button>
+                  <input type="range" id="slider-angle-extent" min="0" max="360" step="1" value="0" class="custom-slider">
+                  <button type="button" class="micro-step-btn" data-step-target="angle_extent" data-step-dir="1" title="增加 1°">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  </button>
+                </div>
+                <input type="number" id="input-angle-extent" min="0" max="360" step="0.5" value="0" class="number-input">
+              </div>
+
+              <div id="angle-validation-msg" class="validation-msg hidden"></div>
+            </div>
+
+            <!-- Pyramid Levels Control -->
+            <div class="form-group-card">
+              <div class="form-label-row">
+                <label>金字塔搜索层级 (<code>num_levels</code>)</label>
+                <div class="tooltip-container" data-tooltip="0 为全分辨率精细搜索；1 为半分辨率金字塔粗搜索后原图细化，速度提升明显。">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="16" x2="12" y2="12"></line>
+                    <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                  </svg>
+                </div>
+              </div>
+
+              <div class="segmented-control">
+                <input type="radio" id="level-0" name="num_levels" value="0">
+                <label for="level-0" class="segmented-option">
+                  <span class="opt-title">0: 原图搜索</span>
+                  <span class="opt-sub">超小目标精细</span>
+                </label>
+
+                <input type="radio" id="level-1" name="num_levels" value="1" checked>
+                <label for="level-1" class="segmented-option">
+                  <span class="opt-title">1: 金字塔加速 (推荐)</span>
+                  <span class="opt-sub">粗搜+细化，速度快</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Extraction Trigger Buttons & Auto-Preview -->
+            <div class="action-footer">
+              <div class="auto-preview-toggle">
+                <label class="switch-label">
+                  <input type="checkbox" id="auto-extract-toggle" checked>
+                  <span class="switch-slider"></span>
+                  <span class="switch-text">参数变动时自动提取特征</span>
+                </label>
+              </div>
+
+              <button id="btn-extract-features" type="button" class="btn btn-primary btn-block">
+                <span class="btn-spinner hidden" id="extract-spinner"></span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path>
+                </svg>
+                <span>提取并更新模板特征</span>
+              </button>
+            </div>
+
+            <!-- Extraction Telemetry Status Card -->
+            <div id="extract-status-box" class="telemetry-box">
+              <div class="telemetry-row">
+                <span class="tel-label">特征提取状态:</span>
+                <span id="extract-quality-badge" class="status-badge badge-neutral">待提取</span>
+              </div>
+              <div class="telemetry-grid">
+                <div class="tel-item">
+                  <span class="tel-sub">有效特征点</span>
+                  <strong id="extract-count-val">-- / 256</strong>
+                </div>
+                <div class="tel-item">
+                  <span class="tel-sub">处理耗时</span>
+                  <strong id="extract-time-val">-- ms</strong>
+                </div>
+              </div>
+              <div id="extract-hint-msg" class="tel-hint">上传模板后调整阈值以提取轮廓特征点</div>
+            </div>
+
+            <!-- Next Step Navigator -->
+            <button id="btn-goto-step2" type="button" class="btn btn-secondary btn-block">
+              <span>进入步骤二：目标匹配 ➔</span>
+            </button>
+          </form>
+        </section>
+
+        <!-- STEP 2 PANEL: match_config Controls -->
+        <section id="step2-panel" class="panel-card step-panel hidden">
+          <div class="panel-card-header">
+            <div class="card-title-group">
+              <span class="step-badge step-badge-step2">步骤二</span>
+              <h2 class="card-title">全图匹配配置 <code>(match_config)</code></h2>
+            </div>
+            <p class="card-subtitle">设置匹配数量、最低分数阈值与缩放尺度，执行多目标搜索</p>
+          </div>
+
+          <form id="match-config-form" class="config-form" onsubmit="return false;">
+            
+            <!-- Num Matches -->
+            <div class="form-group-card">
+              <div class="form-label-row">
+                <label for="input-num-matches">最大匹配数量 (<code>numMatches</code>)</label>
+                <div class="tooltip-container" data-tooltip="NMS 非极大值抑制后最多返回的目标实例数 (≥ 1)。">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="16" x2="12" y2="12"></line>
+                    <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                  </svg>
+                </div>
+              </div>
+              <div class="control-row with-steppers">
+                <span class="control-name">目标个数:</span>
+                <div class="stepper-slider-group">
+                  <button type="button" class="micro-step-btn" data-step-target="numMatches" data-step-dir="-1" title="减少 1">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  </button>
+                  <input type="range" id="slider-num-matches" min="1" max="50" step="1" value="8" class="custom-slider">
+                  <button type="button" class="micro-step-btn" data-step-target="numMatches" data-step-dir="1" title="增加 1">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  </button>
+                </div>
+                <input type="number" id="input-num-matches" min="1" max="100" value="8" class="number-input">
+              </div>
+            </div>
+
+            <!-- Min Score -->
+            <div class="form-group-card">
+              <div class="form-label-row">
+                <label for="input-min-score">最低匹配分数 (<code>minScore</code>)</label>
+                <div class="tooltip-container" data-tooltip="梯度方向平均相似度阈值 [0.0, 1.0]。分数越低容忍度越高（抗遮挡），分数越高过滤越严格。">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="16" x2="12" y2="12"></line>
+                    <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                  </svg>
+                </div>
+              </div>
+              <div class="control-row with-steppers">
+                <span class="control-name">最低得分:</span>
+                <div class="stepper-slider-group">
+                  <button type="button" class="micro-step-btn" data-step-target="minScore" data-step-dir="-1" title="减少 0.01">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  </button>
+                  <input type="range" id="slider-min-score" min="0.0" max="1.0" step="0.01" value="0.15" class="custom-slider">
+                  <button type="button" class="micro-step-btn" data-step-target="minScore" data-step-dir="1" title="增加 0.01">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  </button>
+                </div>
+                <input type="number" id="input-min-score" min="0.0" max="1.0" step="0.01" value="0.15" class="number-input">
+              </div>
+            </div>
+
+            <!-- Scale Range Controls -->
+            <div class="form-group-card">
+              <div class="form-label-row">
+                <label>尺度缩放搜索范围 (Scale Min & Max)</label>
+                <div class="tooltip-container" data-tooltip="相对于模板尺寸的搜索尺度范围。scale_max 必须大于等于 scale_min。若尺度范围过大，粗搜索时间会增加。">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="16" x2="12" y2="12"></line>
+                    <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                  </svg>
+                </div>
+              </div>
+
+              <!-- Scale Quick Presets -->
+              <div class="preset-chips-row">
+                <button type="button" class="preset-chip" data-scale-min="1.0" data-scale-max="1.0">1.0 固定尺度</button>
+                <button type="button" class="preset-chip" data-scale-min="0.8" data-scale-max="1.2">0.8 ~ 1.2 常用</button>
+                <button type="button" class="preset-chip" data-scale-min="0.6" data-scale-max="1.4">0.6 ~ 1.4 宽幅</button>
+              </div>
+
+              <!-- Scale Min -->
+              <div class="control-row with-steppers">
+                <span class="control-name">最小尺度:</span>
+                <div class="stepper-slider-group">
+                  <button type="button" class="micro-step-btn" data-step-target="scale_min" data-step-dir="-1" title="减少 0.05">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  </button>
+                  <input type="range" id="slider-scale-min" min="0.2" max="2.5" step="0.05" value="0.8" class="custom-slider">
+                  <button type="button" class="micro-step-btn" data-step-target="scale_min" data-step-dir="1" title="增加 0.05">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  </button>
+                </div>
+                <input type="number" id="input-scale-min" min="0.1" max="5.0" step="0.01" value="0.8" class="number-input">
+              </div>
+
+              <!-- Scale Max -->
+              <div class="control-row with-steppers">
+                <span class="control-name">最大尺度:</span>
+                <div class="stepper-slider-group">
+                  <button type="button" class="micro-step-btn" data-step-target="scale_max" data-step-dir="-1" title="减少 0.05">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  </button>
+                  <input type="range" id="slider-scale-max" min="0.2" max="2.5" step="0.05" value="1.2" class="custom-slider">
+                  <button type="button" class="micro-step-btn" data-step-target="scale_max" data-step-dir="1" title="增加 0.05">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  </button>
+                </div>
+                <input type="number" id="input-scale-max" min="0.1" max="5.0" step="0.01" value="1.2" class="number-input">
+              </div>
+
+              <div id="scale-validation-msg" class="validation-msg hidden"></div>
+            </div>
+
+            <!-- Match Action Button -->
+            <div class="action-footer">
+              <button id="btn-run-match" type="button" class="btn btn-accent btn-block btn-lg">
+                <span class="btn-spinner hidden" id="match-spinner"></span>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <line x1="22" y1="12" x2="18" y2="12"></line>
+                  <line x1="6" y1="12" x2="2" y2="12"></line>
+                  <line x1="12" y1="6" x2="12" y2="2"></line>
+                  <line x1="12" y1="22" x2="12" y2="18"></line>
+                </svg>
+                <span>执行目标匹配 (Run Match)</span>
+              </button>
+            </div>
+
+            <!-- Match Telemetry Box -->
+            <div id="match-status-box" class="telemetry-box">
+              <div class="telemetry-row">
+                <span class="tel-label">匹配搜索结果:</span>
+                <span id="match-result-badge" class="status-badge badge-neutral">尚未匹配</span>
+              </div>
+              <div class="telemetry-grid">
+                <div class="tel-item">
+                  <span class="tel-sub">命中目标数</span>
+                  <strong id="match-count-val">--</strong>
+                </div>
+                <div class="tel-item">
+                  <span class="tel-sub">匹配总耗时</span>
+                  <strong id="match-time-val">-- ms</strong>
+                </div>
+              </div>
+            </div>
+
+            <!-- Back to Step 1 Button -->
+            <button id="btn-back-step1" type="button" class="btn btn-ghost btn-block">
+              <span>⬅ 返回模板特征调整</span>
+            </button>
+          </form>
+        </section>
+      </aside>
+
+      <!-- Center Viewport: Interactive Canvas Stage -->
+      <section class="stage-section">
+        
+        <!-- Canvas Stage Toolbar -->
+        <div class="stage-toolbar">
+          <div class="toolbar-left">
+            <!-- View Mode Switcher -->
+            <div class="view-mode-group" role="group" aria-label="视图模式">
+              <button id="view-mode-template" class="view-tab-btn active" data-mode="template">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+                </svg>
+                <span>Template 特征</span>
+              </button>
+              <button id="view-mode-match" class="view-tab-btn" data-mode="match">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                </svg>
+                <span>Source 匹配</span>
+              </button>
+              <button id="view-mode-split" class="view-tab-btn" data-mode="split">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="3" y="3" width="8" height="18" rx="1"></rect>
+                  <rect x="13" y="3" width="8" height="18" rx="1"></rect>
+                </svg>
+                <span>并排对比</span>
+              </button>
+            </div>
+
+            <!-- Layer Overlay Toggle -->
+            <div class="layer-toggle-group">
+              <label class="checkbox-badge" title="切换显示原图或特征叠加图">
+                <input type="checkbox" id="toggle-layer-overlay" checked>
+                <span>特征/框线图层</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="toolbar-right">
+            <!-- Pan & Zoom Control Tools -->
+            <div class="zoom-tools-group">
+              <button id="btn-zoom-out" class="icon-tool-btn" title="缩小 (Ctrl + 滚轮向下)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                  <line x1="8" y1="11" x2="14" y2="11"></line>
+                </svg>
+              </button>
+              <span id="zoom-level-text" class="zoom-level-badge">100%</span>
+              <button id="btn-zoom-in" class="icon-tool-btn" title="放大 (Ctrl + 滚轮向上)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                  <line x1="11" y1="8" x2="11" y2="14"></line>
+                  <line x1="8" y1="11" x2="14" y2="11"></line>
+                </svg>
+              </button>
+              <button id="btn-zoom-fit" class="icon-tool-btn" title="适应窗口视图 (Fit)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
+                </svg>
+              </button>
+              <button id="btn-zoom-100" class="icon-tool-btn" title="1:1 实际像素 (100%)">
+                <span style="font-size: 11px; font-weight: 600;">1:1</span>
+              </button>
+            </div>
+
+            <!-- Export Actions -->
+            <div class="export-dropdown-wrapper">
+              <button id="btn-export-image" class="action-pill-btn" title="下载当前画布标注图像">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>下载图像</span>
+              </button>
+              <button id="btn-export-json" class="action-pill-btn" title="导出匹配结果数据为 JSON 文件">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="16 18 22 12 16 6"></polyline>
+                  <polyline points="8 6 2 12 8 18"></polyline>
+                </svg>
+                <span>导出 JSON</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Canvas Viewport Stage -->
+        <div id="viewport-container" class="viewport-container">
+          
+          <!-- Interactive Single Viewport Canvas -->
+          <div id="single-viewport" class="viewport-stage">
+            <canvas id="main-canvas" class="render-canvas"></canvas>
+            
+            <!-- Empty Placeholder Guidance -->
+            <div id="canvas-placeholder" class="canvas-empty-state">
+              <div class="empty-state-art">
+                <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+                  <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                  <path d="M20.4 14.5L16 10 4 20"></path>
+                </svg>
+              </div>
+              <h3 class="empty-title">尚未加载图像</h3>
+              <p class="empty-desc">请在左侧拖入 Template 模板与 Source 场景图，或在顶部下拉框直接加载预置示例</p>
+            </div>
+          </div>
+
+          <!-- Split Viewport for Side-by-Side Comparison -->
+          <div id="split-viewport" class="split-viewport-grid hidden">
+            <div class="split-pane">
+              <div class="pane-header">Template 模板特征</div>
+              <div class="pane-canvas-box" id="pane-template-box">
+                <canvas id="split-template-canvas" class="render-canvas"></canvas>
+              </div>
+            </div>
+            <div class="split-pane">
+              <div class="pane-header">Source 全景匹配</div>
+              <div class="pane-canvas-box" id="pane-source-box">
+                <canvas id="split-source-canvas" class="render-canvas"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Viewport Bottom Bar: Orientation Color Legend & Coordinate Probe -->
+        <footer class="stage-footer">
+          <!-- 8 Orientation Colors Legend -->
+          <div class="orientation-legend">
+            <span class="legend-title">梯度方向量化色彩图例 (8 Orientations):</span>
+            <div class="legend-badges">
+              <span class="dir-badge" style="--dir-color: rgb(255, 80, 80);">0°</span>
+              <span class="dir-badge" style="--dir-color: rgb(255, 180, 60);">22.5°</span>
+              <span class="dir-badge" style="--dir-color: rgb(180, 255, 60);">45°</span>
+              <span class="dir-badge" style="--dir-color: rgb(60, 255, 120);">67.5°</span>
+              <span class="dir-badge" style="--dir-color: rgb(60, 255, 255);">90°</span>
+              <span class="dir-badge" style="--dir-color: rgb(60, 140, 255);">112.5°</span>
+              <span class="dir-badge" style="--dir-color: rgb(160, 60, 255);">135°</span>
+              <span class="dir-badge" style="--dir-color: rgb(255, 60, 180);">157.5°</span>
+            </div>
+          </div>
+
+          <!-- Coordinates & Pixel Inspector -->
+          <div class="inspector-coords" id="inspector-coords">
+            <span class="coord-item">坐标: <strong id="probe-coord-xy">X: --, Y: --</strong></span>
+            <span class="coord-item">视图尺寸: <strong id="probe-image-dim">-- × --</strong></span>
+          </div>
+        </footer>
+      </section>
+
+      <!-- Right Sidebar: Results & Candidate Inspector -->
+      <aside class="results-sidebar" id="results-sidebar">
+        
+        <div class="panel-card results-card">
+          <div class="panel-card-header">
+            <div class="card-title-group">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="8" y1="6" x2="21" y2="6"></line>
+                <line x1="8" y1="12" x2="21" y2="12"></line>
+                <line x1="8" y1="18" x2="21" y2="18"></line>
+                <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                <line x1="3" y1="18" x2="3.01" y2="18"></line>
+              </svg>
+              <h2 class="card-title">匹配目标列表 (Matches)</h2>
+            </div>
+            <span id="results-count-pill" class="pill-badge">0 项</span>
+          </div>
+
+          <!-- Results Summary Stat Row -->
+          <div class="results-stats-row">
+            <div class="stat-box">
+              <span class="stat-name">最佳得分</span>
+              <strong id="stat-best-score" class="stat-value">--</strong>
+            </div>
+            <div class="stat-box">
+              <span class="stat-name">命中数量</span>
+              <strong id="stat-match-count" class="stat-value">0</strong>
+            </div>
+            <div class="stat-box">
+              <span class="stat-name">算法用时</span>
+              <strong id="stat-latency" class="stat-value">-- ms</strong>
+            </div>
+          </div>
+
+          <!-- Interactive Results Table -->
+          <div class="results-table-container">
+            <table class="results-table" id="results-data-table">
+              <thead>
+                <tr>
+                  <th style="width: 44px;">序号</th>
+                  <th>得分 (Score)</th>
+                  <th>中心 (cx, cy)</th>
+                  <th>角度 (θ)</th>
+                  <th>尺度 (S)</th>
+                </tr>
+              </thead>
+              <tbody id="results-table-body">
+                <tr class="table-empty-row">
+                  <td colspan="5" class="empty-cell">尚未执行目标匹配</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Algorithm Guidance Footnote -->
+          <div class="results-footnote">
+            <small>💡 提示：鼠标悬浮表格行可在画布上高亮对应轮廓框，点击行可自动聚焦平移到该目标。</small>
+          </div>
+        </div>
+
+      </aside>
+
+    </main>
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+  </div>
+
+  <!-- Scripts -->
+  <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>
