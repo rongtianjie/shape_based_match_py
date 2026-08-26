@@ -7,6 +7,8 @@ from shape_match.types import (
     PatternConfig,
     PoseKernel,
     ResponseImage,
+    MIN_FEATURES,
+    MIN_VISIBLE_RATIO,
 )
 from shape_match.transforms import build_pose_kernel
 from shape_match.matcher import coarse_search_limits
@@ -22,50 +24,70 @@ except ImportError:
 def _sparse_pose_score_maps(
     responses: ResponseImage,
     pose_kernels: list[tuple[float, float, PoseKernel]],
-    max_anchor_x: int,
-    max_anchor_y: int,
-    pad_width: int,
-    pad_height: int,
+    pad_left: int,
+    pad_right: int,
+    pad_top: int,
+    pad_bottom: int,
     device: "torch.device",
+    min_visible_ratio: float = MIN_VISIBLE_RATIO,
 ) -> "torch.Tensor":
-    """Accumulate sparse pose kernels without launching a dense convolution.
-
-    A pose kernel contains at most one non-zero value per extracted feature,
-    while a dense convolution evaluates every pixel in its bounding box.  A
-    shifted view of the response map is therefore the exact same correlation
-    operation and is substantially cheaper for shape templates.
-    """
+    """Accumulate sparse pose kernels with zero padding and visible count normalization."""
     responses_tensor = torch.from_numpy(np.ascontiguousarray(responses)).to(
         device=device, dtype=torch.float32
     )
     if responses.dtype == np.uint8:
         responses_tensor.mul_(1.0 / 255.0)
-    output_height = responses.shape[1] - pad_height + 1
-    output_width = responses.shape[2] - pad_width + 1
+
+    orig_h, orig_w = responses.shape[1:]
+    padded_responses = F.pad(
+        responses_tensor,
+        (pad_left, pad_right, pad_top, pad_bottom),
+        mode="constant",
+        value=0.0,
+    )
+    fov_mask = torch.zeros(
+        (orig_h + pad_top + pad_bottom, orig_w + pad_left + pad_right),
+        device=device,
+        dtype=torch.float32,
+    )
+    fov_mask[pad_top : pad_top + orig_h, pad_left : pad_left + orig_w] = 1.0
+
     score_maps: list["torch.Tensor"] = []
 
     for _, _, kernel in pose_kernels:
-        score_map = torch.zeros(
+        output_height = orig_h + pad_top + pad_bottom - kernel.height + 1
+        output_width = orig_w + pad_left + pad_right - kernel.width + 1
+        score_sum = torch.zeros(
             (output_height, output_width), device=device, dtype=torch.float32
         )
-        start_y = max_anchor_y - kernel.anchor_y
-        start_x = max_anchor_x - kernel.anchor_x
-        inverse_count = 1.0 / float(kernel.feature_count)
+        vis_sum = torch.zeros(
+            (output_height, output_width), device=device, dtype=torch.float32
+        )
+        min_vis = max(1, min(MIN_FEATURES, kernel.feature_count), int(round(min_visible_ratio * kernel.feature_count)))
 
         for label, template in enumerate(kernel.kernels):
             if template is None:
                 continue
             ys, xs = np.nonzero(template)
-            values = template[ys, xs] * inverse_count
-            source = responses_tensor[label]
+            values = template[ys, xs]
+            source = padded_responses[label]
             for y, x, value in zip(ys, xs, values):
-                score_map.add_(
+                score_sum.add_(
                     source[
-                        start_y + int(y) : start_y + int(y) + output_height,
-                        start_x + int(x) : start_x + int(x) + output_width,
+                        int(y) : int(y) + output_height,
+                        int(x) : int(x) + output_width,
                     ],
                     alpha=float(value),
                 )
+                vis_sum.add_(
+                    fov_mask[
+                        int(y) : int(y) + output_height,
+                        int(x) : int(x) + output_width,
+                    ],
+                    alpha=float(value),
+                )
+        score_map = score_sum / torch.clamp(vis_sum, min=1.0)
+        score_map[vis_sum < float(min_vis)] = 0.0
         score_maps.append(score_map)
 
     return torch.stack(score_maps)
@@ -93,62 +115,23 @@ def coarse_search_pytorch(
     if not pose_kernels:
         return []
 
-    max_anchor_x = max(k.anchor_x for _, _, k in pose_kernels)
-    max_anchor_y = max(k.anchor_y for _, _, k in pose_kernels)
-    max_right = max(k.width - k.anchor_x for _, _, k in pose_kernels)
-    max_bottom = max(k.height - k.anchor_y for _, _, k in pose_kernels)
-
-    pad_width = max_anchor_x + max_right
-    pad_height = max_anchor_y + max_bottom
-    
-    # if image is smaller than kernel, return empty
-    if responses.shape[1] < pad_height or responses.shape[2] < pad_width:
-        return []
+    max_pad_left = max(k.anchor_x for _, _, k in pose_kernels)
+    max_pad_right = max(k.width - 1 - k.anchor_x for _, _, k in pose_kernels)
+    max_pad_top = max(k.anchor_y for _, _, k in pose_kernels)
+    max_pad_bottom = max(k.height - 1 - k.anchor_y for _, _, k in pose_kernels)
     
     num_poses = len(pose_kernels)
-    num_orientations = len(pose_kernels[0][2].kernels)
 
     with torch.no_grad():
-        if device.type == "cuda":
-            # The kernels are sparse (normally <= 256 feature points), so
-            # shifted accumulation avoids the prohibitively expensive dense
-            # 200x200-ish convolution used by the previous implementation.
-            out = _sparse_pose_score_maps(
-                responses,
-                pose_kernels,
-                max_anchor_x,
-                max_anchor_y,
-                pad_width,
-                pad_height,
-                device,
-            )
-        else:
-            # Keep a dense CPU fallback.  The public matcher only selects the
-            # PyTorch path when CUDA is available, but this makes the helper
-            # behave sensibly when called directly in a CPU-only environment.
-            weights = np.zeros(
-                (num_poses, num_orientations, pad_height, pad_width),
-                dtype=np.float32,
-            )
-            for i, (_, _, kernel) in enumerate(pose_kernels):
-                start_y = max_anchor_y - kernel.anchor_y
-                start_x = max_anchor_x - kernel.anchor_x
-                inverse_count = 1.0 / float(kernel.feature_count)
-                for j, template in enumerate(kernel.kernels):
-                    if template is not None:
-                        weights[
-                            i,
-                            j,
-                            start_y : start_y + kernel.height,
-                            start_x : start_x + kernel.width,
-                        ] = template * inverse_count
-            weights_tensor = torch.from_numpy(weights).to(device)
-            responses_tensor = torch.from_numpy(responses).unsqueeze(0).to(
-                device=device, dtype=torch.float32
-            )
-            if responses.dtype == np.uint8:
-                responses_tensor.mul_(1.0 / 255.0)
-            out = F.conv2d(responses_tensor, weights_tensor).squeeze(0)
+        out = _sparse_pose_score_maps(
+            responses,
+            pose_kernels,
+            max_pad_left,
+            max_pad_right,
+            max_pad_top,
+            max_pad_bottom,
+            device,
+        )
 
         out = torch.clamp(out, 0.0, 1.0)
         
@@ -177,14 +160,15 @@ def coarse_search_pytorch(
         candidates = []
         for idx in range(len(scores)):
             p_idx = pose_indices[idx]
-            scale, angle, _ = pose_kernels[p_idx]
+            scale, angle, kernel = pose_kernels[p_idx]
             left = xs[idx]
             top = ys[idx]
             score = float(scores[idx])
             
-            cx = (left + max_anchor_x) / image_factor
-            cy = (top + max_anchor_y) / image_factor
+            cx = (left + kernel.anchor_x - max_pad_left) / image_factor
+            cy = (top + kernel.anchor_y - max_pad_top) / image_factor
             candidates.append(Candidate(cx=cx, cy=cy, score=score, angle=angle, scale=scale))
             
     candidates.sort(key=lambda c: c.score, reverse=True)
     return candidates[:global_limit]
+

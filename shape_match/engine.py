@@ -162,8 +162,10 @@ class ShapeMatcher:
         # appearance consistency.
         scored_candidates: list[tuple[Candidate, float]] = []
         for result in refined:
-            patch = resample_candidate_patch(source_gray, features, result)
-            app_score = appearance_score(features.template_gray, features.appearance_mask, patch)
+            patch, patch_valid = resample_candidate_patch(source_gray, features, result)
+            app_score = appearance_score(
+                features.template_gray, features.appearance_mask, patch, patch_valid
+            )
             scored_candidates.append((result, app_score))
 
         if not scored_candidates:
