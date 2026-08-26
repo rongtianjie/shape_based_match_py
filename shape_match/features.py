@@ -174,7 +174,9 @@ def extract_features(
     ys = points[:, 1]
     magnitudes = np.maximum(magnitude[ys, xs], np.float32(1e-6))
     gradients = np.column_stack((gx[ys, xs] / magnitudes, gy[ys, xs] / magnitudes)).astype(np.float32)
-    labels = quantize_orientations(gradients[:, 0], gradients[:, 1])
+    labels = quantize_orientations(
+        gradients[:, 0], gradients[:, 1], bool(config.use_polarity)
+    )
 
     centre = np.array([(width - 1) / 2.0, (height - 1) / 2.0], dtype=np.float32)
     offsets = points.astype(np.float32) - centre
@@ -187,4 +189,5 @@ def extract_features(
         height=height,
         template_gray=gray,
         appearance_mask=appearance_mask,
+        use_polarity=bool(config.use_polarity),
     )

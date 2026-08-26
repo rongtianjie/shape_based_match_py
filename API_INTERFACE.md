@@ -79,9 +79,13 @@ match_result, show = get_matched_result(model, src, pat_config, match_config)
 |---|---|---:|---|
 | `contrast_low` | `int` | `3` | 大于 0；双阈值边缘的低阈值 |
 | `contrast_high` | `int` | `5` | 必须大于 `contrast_low` |
-| `angle_start` | `float` | `-5.0` | `[-360, 360]`；搜索起始角度 |
-| `angle_extent` | `float` | `10.0` | `[0, 360]`；搜索范围，0 表示固定角度 |
-| `num_levels` | `int` | `1` | `0`：全分辨率搜索；`1`：半分辨率粗搜索后原图细化 |
+| `min_contrast` | `int` | `3` | `[0, 255]`；归一化到约 `0..10` 的最小梯度对比度，0 表示不额外过滤；大于 10 会滤除全部边缘 |
+| `min_cont_len` | `int` | `1` | 大于等于 1；丢弃最长轮廓弧长小于该值的 8 连通边缘组件 |
+| `num_levels` | `int` | `0` | `0`：全分辨率搜索；`1`：半分辨率粗搜索后原图细化 |
+| `use_polarity` | `int` | `0` | `0`：忽略明暗极性；`1`：区分相反梯度方向，可排除对比度反转目标 |
+| `angle_start` | `float` | `0.0` | `[-360, 360]`；搜索起始角度 |
+| `angle_extent` | `float` | `360.0` | `[0, 360]`；搜索范围，0 表示固定角度 |
+| `angle_step` | `float` | `0.0` | `[0, 360]`；粗搜索角度步长，0 使用自动值 10°，最终仍以 1° 局部细化 |
 
 `angle_start + angle_extent` 不得超过 360。范围为 360° 时不会重复首尾姿态。
 
@@ -89,10 +93,13 @@ match_result, show = get_matched_result(model, src, pat_config, match_config)
 
 | 字段 | 类型 | 默认值 | 有效范围及说明 |
 |---|---|---:|---|
-| `numMatches` | `int` | `5` | 大于等于 1；NMS 后最多返回的结果数 |
+| `subpixel` | `int` | `1` | `0`：整数坐标；`1`：轴向抛物线插值；`2`：二维二次曲面最小二乘拟合 |
+| `scale_min` | `float` | `0.8` | 大于 0；最小搜索尺度 |
+| `scale_max` | `float` | `1.2` | 大于等于 `scale_min`；最大搜索尺度 |
 | `minScore` | `float` | `0.15` | `[0.0, 1.0]`；最终匹配最低得分 |
-| `scale_min` | `float` | `1.0` | 大于 0；最小搜索尺度 |
-| `scale_max` | `float` | `1.0` | 大于等于 `scale_min`；最大搜索尺度 |
+| `maxOverLap` | `float` | `0.5` | `[0.0, 1.0]`；旋转模板框 IoU 大于该值时抑制低分重叠结果 |
+| `greedness` | `float` | `0.75` | `[0.0, 1.0]`；粗搜索剪枝强度，越大速度越快但弱目标漏检风险越高 |
+| `numMatches` | `int` | `1` | 大于等于 1；NMS 后最多返回的结果数 |
 
 空配置和部分配置均有效，未提供的字段由上述默认值补齐。未知字段会触发 `ValueError`，避免拼写错误被静默忽略。
 
@@ -124,10 +131,13 @@ pat_config = {
     "num_levels": 1,
 }
 match_config = {
+    "subpixel": 1,
     "numMatches": 5,
     "minScore": 0.3,
     "scale_min": 0.8,
     "scale_max": 1.2,
+    "maxOverLap": 0.5,
+    "greedness": 0.75,
 }
 
 model_view = get_model_shape(model, pat_config)

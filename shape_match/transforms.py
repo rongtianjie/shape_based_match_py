@@ -8,6 +8,7 @@ import numpy as np
 
 from shape_match.gradients import quantize_orientations
 from shape_match.types import (
+    DIRECTED_NUM_ORIENTATIONS,
     NUM_ORIENTATIONS,
     Candidate,
     FloatImage,
@@ -33,7 +34,9 @@ def transformed_geometry(
     direction_transform = rotation_matrix(angle)
     offsets = features.offsets @ spatial_transform.T
     gradients = features.unit_gradients @ direction_transform.T
-    labels = quantize_orientations(gradients[:, 0], gradients[:, 1])
+    labels = quantize_orientations(
+        gradients[:, 0], gradients[:, 1], features.use_polarity
+    )
 
     half_width = (features.width - 1) / 2.0
     half_height = (features.height - 1) / 2.0
@@ -62,7 +65,8 @@ def build_pose_kernel(features: ModelFeatures, angle: float, scale: float) -> Po
     height = max_y - min_y + 1
 
     kernels: list[FloatImage | None] = []
-    for label in range(NUM_ORIENTATIONS):
+    orientation_count = DIRECTED_NUM_ORIENTATIONS if features.use_polarity else NUM_ORIENTATIONS
+    for label in range(orientation_count):
         selected = rounded_offsets[labels == label]
         if len(selected) == 0:
             kernels.append(None)

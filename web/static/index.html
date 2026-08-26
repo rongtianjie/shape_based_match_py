@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ShapeMatch Studio - 基于梯度方向的二维形状匹配工作台</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=20260825_3">
+  <link rel="stylesheet" href="static/css/style.css?v=20260826_legacy_params">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -229,12 +229,12 @@
                   <button type="button" class="micro-step-btn" data-step-target="contrast_low" data-step-dir="-1" title="减少 1">
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                   </button>
-                  <input type="range" id="slider-contrast-low" min="1" max="254" value="10" class="custom-slider">
+                  <input type="range" id="slider-contrast-low" min="1" max="254" value="3" class="custom-slider">
                   <button type="button" class="micro-step-btn" data-step-target="contrast_low" data-step-dir="1" title="增加 1">
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                   </button>
                 </div>
-                <input type="number" id="input-contrast-low" min="1" max="254" value="10" class="number-input">
+                <input type="number" id="input-contrast-low" min="1" max="254" value="3" class="number-input">
               </div>
 
               <!-- Contrast High -->
@@ -244,22 +244,77 @@
                   <button type="button" class="micro-step-btn" data-step-target="contrast_high" data-step-dir="-1" title="减少 1">
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                   </button>
-                  <input type="range" id="slider-contrast-high" min="2" max="255" value="30" class="custom-slider">
+                  <input type="range" id="slider-contrast-high" min="2" max="255" value="5" class="custom-slider">
                   <button type="button" class="micro-step-btn" data-step-target="contrast_high" data-step-dir="1" title="增加 1">
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                   </button>
                 </div>
-                <input type="number" id="input-contrast-high" min="2" max="255" value="30" class="number-input">
+                <input type="number" id="input-contrast-high" min="2" max="255" value="5" class="number-input">
               </div>
 
               <div id="contrast-validation-msg" class="validation-msg hidden"></div>
+            </div>
+
+            <!-- Contour & Polarity Controls -->
+            <div class="form-group-card">
+              <div class="form-label-row">
+                <label>轮廓过滤与明暗极性 (Contour & Polarity)</label>
+                <div class="tooltip-container" data-tooltip="min_contrast: 最小对比度过滤 (0~10)；min_cont_len: 过滤过短轮廓碎片 (像素)；use_polarity: 是否区分明暗梯度方向。">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="16" x2="12" y2="12"></line>
+                    <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                  </svg>
+                </div>
+              </div>
+
+              <!-- Min Contrast -->
+              <div class="control-row with-steppers">
+                <span class="control-name" title="min_contrast: 最小对比度阈值 (0~10)">最小对比度:</span>
+                <div class="stepper-slider-group">
+                  <button type="button" class="micro-step-btn" data-step-target="min_contrast" data-step-dir="-1" title="减少 1">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  </button>
+                  <input type="range" id="slider-min-contrast" min="0" max="10" step="1" value="3" class="custom-slider">
+                  <button type="button" class="micro-step-btn" data-step-target="min_contrast" data-step-dir="1" title="增加 1">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  </button>
+                </div>
+                <input type="number" id="input-min-contrast" min="0" max="10" step="1" value="3" class="number-input">
+              </div>
+
+              <!-- Min Contour Length -->
+              <div class="control-row with-steppers">
+                <span class="control-name" title="min_cont_len: 最小边缘轮廓长度 (像素)">最小轮廓长:</span>
+                <div class="stepper-slider-group">
+                  <button type="button" class="micro-step-btn" data-step-target="min_cont_len" data-step-dir="-1" title="减少 1">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  </button>
+                  <input type="range" id="slider-min-cont-len" min="1" max="1000" step="1" value="1" class="custom-slider">
+                  <button type="button" class="micro-step-btn" data-step-target="min_cont_len" data-step-dir="1" title="增加 1">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  </button>
+                </div>
+                <input type="number" id="input-min-cont-len" min="1" max="1000" step="1" value="1" class="number-input">
+              </div>
+
+              <!-- Use Polarity -->
+              <div class="control-row select-row">
+                <label class="control-name" for="select-use-polarity" title="use_polarity: 是否区分明暗边缘梯度方向">极性模式:</label>
+                <div class="select-inline-wrapper">
+                  <select id="select-use-polarity" class="custom-select select-inline" aria-label="use_polarity">
+                    <option value="0" selected>0：忽略极性 (任意对比度)</option>
+                    <option value="1">1：区分极性 (同向对比度)</option>
+                  </select>
+                </div>
+              </div>
             </div>
 
             <!-- Angle Range Controls -->
             <div class="form-group-card">
               <div class="form-label-row">
                 <label>角度搜索范围 (Angle Start & Extent)</label>
-                <div class="tooltip-container" data-tooltip="目标在全图中的可能旋转范围。start 为起始角，extent 为跨度（0 表示固定角度，360 表示全向）。start + extent ≤ 360。">
+                <div class="tooltip-container" data-tooltip="目标在全图中的可能旋转范围。start 为起始角，extent 为跨度（0 表示固定角度，360 表示全向）。angle_step 为粗搜步长（0 为自适应）。">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <circle cx="12" cy="12" r="10"></circle>
                     <line x1="12" y1="16" x2="12" y2="12"></line>
@@ -298,12 +353,27 @@
                   <button type="button" class="micro-step-btn" data-step-target="angle_extent" data-step-dir="-1" title="减少 1°">
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                   </button>
-                  <input type="range" id="slider-angle-extent" min="0" max="360" step="1" value="0" class="custom-slider">
+                   <input type="range" id="slider-angle-extent" min="0" max="360" step="1" value="360" class="custom-slider">
                   <button type="button" class="micro-step-btn" data-step-target="angle_extent" data-step-dir="1" title="增加 1°">
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                   </button>
                 </div>
-                <input type="number" id="input-angle-extent" min="0" max="360" step="0.5" value="0" class="number-input">
+                 <input type="number" id="input-angle-extent" min="0" max="360" step="0.5" value="360" class="number-input">
+              </div>
+
+              <!-- Angle Step -->
+              <div class="control-row with-steppers">
+                <span class="control-name" title="angle_step: 粗搜索角度步长（0 表示由算法自动计算最优步长）">搜索步长 (°):</span>
+                <div class="stepper-slider-group">
+                  <button type="button" class="micro-step-btn" data-step-target="angle_step" data-step-dir="-1" title="减少 1°">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  </button>
+                  <input type="range" id="slider-angle-step" min="0" max="360" step="1" value="0" class="custom-slider">
+                  <button type="button" class="micro-step-btn" data-step-target="angle_step" data-step-dir="1" title="增加 1°">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  </button>
+                </div>
+                <input type="number" id="input-angle-step" min="0" max="360" step="0.5" value="0" class="number-input">
               </div>
 
               <div id="angle-validation-msg" class="validation-msg hidden"></div>
@@ -323,13 +393,13 @@
               </div>
 
               <div class="segmented-control">
-                <input type="radio" id="level-0" name="num_levels" value="0">
+                <input type="radio" id="level-0" name="num_levels" value="0" checked>
                 <label for="level-0" class="segmented-option">
                   <span class="opt-title">0: 原图搜索</span>
                   <span class="opt-sub">超小目标精细</span>
                 </label>
 
-                <input type="radio" id="level-1" name="num_levels" value="1" checked>
+                <input type="radio" id="level-1" name="num_levels" value="1">
                 <label for="level-1" class="segmented-option">
                   <span class="opt-title">1: 金字塔加速 (推荐)</span>
                   <span class="opt-sub">粗搜+细化，速度快</span>
@@ -412,12 +482,12 @@
                   <button type="button" class="micro-step-btn" data-step-target="numMatches" data-step-dir="-1" title="减少 1">
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                   </button>
-                  <input type="range" id="slider-num-matches" min="1" max="50" step="1" value="8" class="custom-slider">
+                   <input type="range" id="slider-num-matches" min="1" max="50" step="1" value="1" class="custom-slider">
                   <button type="button" class="micro-step-btn" data-step-target="numMatches" data-step-dir="1" title="增加 1">
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                   </button>
                 </div>
-                <input type="number" id="input-num-matches" min="1" max="100" value="8" class="number-input">
+                 <input type="number" id="input-num-matches" min="1" max="100" value="1" class="number-input">
               </div>
             </div>
 
@@ -499,6 +569,62 @@
               </div>
 
               <div id="scale-validation-msg" class="validation-msg hidden"></div>
+            </div>
+
+            <!-- Refinement & Strategy Controls -->
+            <div class="form-group-card">
+              <div class="form-label-row">
+                <label>匹配精度与搜索策略 (Refinement & Strategy)</label>
+                <div class="tooltip-container" data-tooltip="subpixel: 亚像素精化算法；maxOverLap: 允许的最大重叠率 (NMS)；greedness: 粗搜索分支限界剪枝贪婪度。">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="16" x2="12" y2="12"></line>
+                    <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                  </svg>
+                </div>
+              </div>
+
+              <!-- Subpixel Mode -->
+              <div class="control-row select-row">
+                <label class="control-name" for="select-subpixel" title="subpixel: 亚像素级目标中心定位精化模式">亚像素精度:</label>
+                <div class="select-inline-wrapper">
+                  <select id="select-subpixel" class="custom-select select-inline" aria-label="subpixel">
+                    <option value="0">0：整数像素 (Pixel)</option>
+                    <option value="1" selected>1：插值精化 (Interpolation, 默认)</option>
+                    <option value="2">2：二次曲面拟合 (LeastSquares)</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Max Overlap -->
+              <div class="control-row with-steppers">
+                <span class="control-name" title="maxOverLap: NMS 非极大值抑制的最大允许重叠面积比例">最大重叠:</span>
+                <div class="stepper-slider-group">
+                  <button type="button" class="micro-step-btn" data-step-target="maxOverLap" data-step-dir="-1" title="减少 0.01">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  </button>
+                  <input type="range" id="slider-max-overlap" min="0" max="1" step="0.01" value="0.5" class="custom-slider">
+                  <button type="button" class="micro-step-btn" data-step-target="maxOverLap" data-step-dir="1" title="增加 0.01">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  </button>
+                </div>
+                <input type="number" id="input-max-overlap" min="0" max="1" step="0.01" value="0.5" class="number-input">
+              </div>
+
+              <!-- Greediness -->
+              <div class="control-row with-steppers">
+                <span class="control-name" title="greedness: 粗搜索分支限界剪枝贪婪度 [0.0, 1.0]，越大剪枝越快">搜索贪婪度:</span>
+                <div class="stepper-slider-group">
+                  <button type="button" class="micro-step-btn" data-step-target="greedness" data-step-dir="-1" title="减少 0.01">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  </button>
+                  <input type="range" id="slider-greedness" min="0" max="1" step="0.01" value="0.75" class="custom-slider">
+                  <button type="button" class="micro-step-btn" data-step-target="greedness" data-step-dir="1" title="增加 0.01">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  </button>
+                </div>
+                <input type="number" id="input-greedness" min="0" max="1" step="0.01" value="0.75" class="number-input">
+              </div>
             </div>
 
             <!-- Match Action Button -->
@@ -775,6 +901,6 @@
   </div>
 
   <!-- Scripts -->
-  <script type="module" src="/static/js/app.js?v=20260825_3"></script>
+  <script type="module" src="static/js/app.js?v=20260826_1"></script>
 </body>
 </html>

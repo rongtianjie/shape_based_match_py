@@ -64,8 +64,47 @@ def encode_image_base64(image: np.ndarray, quality: int = 90) -> str:
     return f"data:{mime};base64,{encoded}"
 
 
-_PAT_KEYS = {"contrast_low", "contrast_high", "angle_start", "angle_extent", "num_levels"}
-_MATCH_KEYS = {"numMatches", "minScore", "scale_min", "scale_max"}
+_PAT_KEYS = {
+    "contrast_low",
+    "contrast_high",
+    "min_contrast",
+    "min_cont_len",
+    "num_levels",
+    "use_polarity",
+    "angle_start",
+    "angle_extent",
+    "angle_step",
+}
+_MATCH_KEYS = {
+    "subpixel",
+    "scale_min",
+    "scale_max",
+    "minScore",
+    "maxOverLap",
+    "greedness",
+    "numMatches",
+}
+
+DEFAULT_PAT_CONFIG: dict[str, Any] = {
+    "contrast_low": 3,
+    "contrast_high": 5,
+    "min_contrast": 3,
+    "min_cont_len": 1,
+    "num_levels": 0,
+    "use_polarity": 0,
+    "angle_start": 0.0,
+    "angle_extent": 360.0,
+    "angle_step": 0.0,
+}
+DEFAULT_MATCH_CONFIG: dict[str, Any] = {
+    "subpixel": 1,
+    "scale_min": 0.8,
+    "scale_max": 1.2,
+    "minScore": 0.15,
+    "maxOverLap": 0.5,
+    "greedness": 0.75,
+    "numMatches": 1,
+}
 
 
 def filter_pat_config(config: dict[str, Any] | None) -> dict[str, Any]:
@@ -106,19 +145,8 @@ def get_sample_images(sample_id: str) -> tuple[np.ndarray, np.ndarray, dict[str,
             raise HTTPException(status_code=404, detail="Sample dataset files not found")
         model = cv2.imread(str(model_path), cv2.IMREAD_COLOR)
         source = cv2.imread(str(source_path), cv2.IMREAD_COLOR)
-        default_pat = {
-            "contrast_low": 10,
-            "contrast_high": 30,
-            "angle_start": 0.0,
-            "angle_extent": 0.0,
-            "num_levels": 1,
-        }
-        default_match = {
-            "numMatches": 8,
-            "minScore": 0.15,
-            "scale_min": 0.8,
-            "scale_max": 1.2,
-        }
+        default_pat = DEFAULT_PAT_CONFIG.copy()
+        default_match = {**DEFAULT_MATCH_CONFIG, "numMatches": 8}
         return model, source, default_pat, default_match
     elif sample_id == "synthetic_case":
         model = np.zeros((80, 96, 3), dtype=np.uint8)
@@ -145,6 +173,7 @@ def get_sample_images(sample_id: str) -> tuple[np.ndarray, np.ndarray, dict[str,
         source = cv2.add(source, noise)
 
         default_pat = {
+            **DEFAULT_PAT_CONFIG,
             "contrast_low": 15,
             "contrast_high": 40,
             "angle_start": -45.0,
@@ -152,10 +181,9 @@ def get_sample_images(sample_id: str) -> tuple[np.ndarray, np.ndarray, dict[str,
             "num_levels": 1,
         }
         default_match = {
+            **DEFAULT_MATCH_CONFIG,
             "numMatches": 5,
             "minScore": 0.35,
-            "scale_min": 0.8,
-            "scale_max": 1.2,
         }
         return model, source, default_pat, default_match
     else:
@@ -170,25 +198,15 @@ def list_samples() -> JSONResponse:
             "id": "meiqua_case2",
             "name": "工业零件 (Meiqua Case 2)",
             "description": "真实工业灰度金属零件，包含多个旋转与缩放实例，带有轻微噪声与背景干扰。",
-            "default_pat": {
-                "contrast_low": 10,
-                "contrast_high": 30,
-                "angle_start": 0.0,
-                "angle_extent": 0.0,
-                "num_levels": 1,
-            },
-            "default_match": {
-                "numMatches": 8,
-                "minScore": 0.15,
-                "scale_min": 0.8,
-                "scale_max": 1.2,
-            },
+            "default_pat": DEFAULT_PAT_CONFIG,
+            "default_match": {**DEFAULT_MATCH_CONFIG, "numMatches": 8},
         },
         {
             "id": "synthetic_case",
             "name": "多姿态合成图形 (Synthetic Geometric)",
             "description": "含矩形、斜线、圆孔的合成目标，源图中分布有不同旋转角度（-35°、0°、+25°）与尺度的实例。",
             "default_pat": {
+                **DEFAULT_PAT_CONFIG,
                 "contrast_low": 15,
                 "contrast_high": 40,
                 "angle_start": -45.0,
@@ -196,10 +214,9 @@ def list_samples() -> JSONResponse:
                 "num_levels": 1,
             },
             "default_match": {
+                **DEFAULT_MATCH_CONFIG,
                 "numMatches": 5,
                 "minScore": 0.35,
-                "scale_min": 0.8,
-                "scale_max": 1.2,
             },
         },
     ]

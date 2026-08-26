@@ -23,18 +23,25 @@ const state = {
 
   // Config parameters
   patConfig: {
-    contrast_low: 10,
-    contrast_high: 30,
+    contrast_low: 3,
+    contrast_high: 5,
+    min_contrast: 3,
+    min_cont_len: 1,
     angle_start: 0.0,
-    angle_extent: 0.0,
-    num_levels: 1,
+    angle_extent: 360.0,
+    angle_step: 0.0,
+    num_levels: 0,
+    use_polarity: 0,
   },
 
   matchConfig: {
-    numMatches: 8,
+    numMatches: 1,
     minScore: 0.15,
     scale_min: 0.8,
     scale_max: 1.2,
+    subpixel: 1,
+    maxOverLap: 0.5,
+    greedness: 0.75,
   },
 
   // Results telemetry
@@ -66,6 +73,16 @@ const state = {
 
 // DOM Element Cache
 const dom = {};
+
+// The studio can run at / (standalone) or under a mounted sub-application such
+// as /shape_match_web. Resolve API calls from the current page path so both
+// deployments use the same frontend bundle.
+function apiUrl(path) {
+  const pagePath = window.location.pathname.endsWith('/')
+    ? window.location.pathname
+    : `${window.location.pathname}/`;
+  return `${pagePath}api/${String(path).replace(/^\/+/, '')}`;
+}
 
 document.addEventListener('DOMContentLoaded', () => {
   initDomElements();
@@ -113,6 +130,11 @@ function initDomElements() {
   dom.inputContrastLow = document.getElementById('input-contrast-low');
   dom.sliderContrastHigh = document.getElementById('slider-contrast-high');
   dom.inputContrastHigh = document.getElementById('input-contrast-high');
+  dom.sliderMinContrast = document.getElementById('slider-min-contrast');
+  dom.inputMinContrast = document.getElementById('input-min-contrast');
+  dom.sliderMinContLen = document.getElementById('slider-min-cont-len');
+  dom.inputMinContLen = document.getElementById('input-min-cont-len');
+  dom.selectUsePolarity = document.getElementById('select-use-polarity');
   dom.contrastValidation = document.getElementById('contrast-validation-msg');
   dom.btnAutoContrast = document.getElementById('btn-auto-contrast');
 
@@ -120,6 +142,8 @@ function initDomElements() {
   dom.inputAngleStart = document.getElementById('input-angle-start');
   dom.sliderAngleExtent = document.getElementById('slider-angle-extent');
   dom.inputAngleExtent = document.getElementById('input-angle-extent');
+  dom.sliderAngleStep = document.getElementById('slider-angle-step');
+  dom.inputAngleStep = document.getElementById('input-angle-step');
   dom.angleValidation = document.getElementById('angle-validation-msg');
 
   dom.levelRadios = document.querySelectorAll('input[name="num_levels"]');
@@ -141,6 +165,11 @@ function initDomElements() {
   dom.inputScaleMin = document.getElementById('input-scale-min');
   dom.sliderScaleMax = document.getElementById('slider-scale-max');
   dom.inputScaleMax = document.getElementById('input-scale-max');
+  dom.selectSubpixel = document.getElementById('select-subpixel');
+  dom.sliderMaxOverlap = document.getElementById('slider-max-overlap');
+  dom.inputMaxOverlap = document.getElementById('input-max-overlap');
+  dom.sliderGreedness = document.getElementById('slider-greedness');
+  dom.inputGreedness = document.getElementById('input-greedness');
   dom.scaleValidation = document.getElementById('scale-validation-msg');
 
   dom.btnRunMatch = document.getElementById('btn-run-match');
@@ -290,8 +319,16 @@ function initEventListeners() {
   // Config Param Two-Way Binding (Step 1: pat_config)
   bindControl(dom.sliderContrastLow, dom.inputContrastLow, 'contrast_low', onPatConfigChanged);
   bindControl(dom.sliderContrastHigh, dom.inputContrastHigh, 'contrast_high', onPatConfigChanged);
+  bindControl(dom.sliderMinContrast, dom.inputMinContrast, 'min_contrast', onPatConfigChanged);
+  bindControl(dom.sliderMinContLen, dom.inputMinContLen, 'min_cont_len', onPatConfigChanged);
   bindControl(dom.sliderAngleStart, dom.inputAngleStart, 'angle_start', onPatConfigChanged);
   bindControl(dom.sliderAngleExtent, dom.inputAngleExtent, 'angle_extent', onPatConfigChanged);
+  bindControl(dom.sliderAngleStep, dom.inputAngleStep, 'angle_step', onPatConfigChanged);
+
+  dom.selectUsePolarity.addEventListener('change', (e) => {
+    state.patConfig.use_polarity = parseInt(e.target.value, 10);
+    onPatConfigChanged();
+  });
 
   dom.levelRadios.forEach((r) => {
     r.addEventListener('change', (e) => {
@@ -318,6 +355,13 @@ function initEventListeners() {
   bindControl(dom.sliderMinScore, dom.inputMinScore, 'minScore', onMatchConfigChanged);
   bindControl(dom.sliderScaleMin, dom.inputScaleMin, 'scale_min', onMatchConfigChanged);
   bindControl(dom.sliderScaleMax, dom.inputScaleMax, 'scale_max', onMatchConfigChanged);
+  bindControl(dom.sliderMaxOverlap, dom.inputMaxOverlap, 'maxOverLap', onMatchConfigChanged);
+  bindControl(dom.sliderGreedness, dom.inputGreedness, 'greedness', onMatchConfigChanged);
+
+  dom.selectSubpixel.addEventListener('change', (e) => {
+    state.matchConfig.subpixel = parseInt(e.target.value, 10);
+    onMatchConfigChanged();
+  });
 
   // Initialize Micro-Stepper [-] and [+] Buttons with Hold-to-Repeat
   initStepperButtons();
@@ -590,17 +634,24 @@ function resetAll() {
   dom.sampleSelect.value = '';
 
   state.patConfig = {
-    contrast_low: 10,
-    contrast_high: 30,
+    contrast_low: 3,
+    contrast_high: 5,
+    min_contrast: 3,
+    min_cont_len: 1,
     angle_start: 0.0,
-    angle_extent: 0.0,
-    num_levels: 1,
+    angle_extent: 360.0,
+    angle_step: 0.0,
+    num_levels: 0,
+    use_polarity: 0,
   };
   state.matchConfig = {
-    numMatches: 8,
+    numMatches: 1,
     minScore: 0.15,
     scale_min: 0.8,
     scale_max: 1.2,
+    subpixel: 1,
+    maxOverLap: 0.5,
+    greedness: 0.75,
   };
 
   updateFormControls();
@@ -615,7 +666,7 @@ function resetAll() {
 async function loadSampleDataset(sampleId) {
   try {
     showToast(`正在加载示例场景: ${sampleId}...`, 'info');
-    const resp = await fetch(`/api/samples/${sampleId}/images`);
+    const resp = await fetch(apiUrl(`/samples/${sampleId}/images`));
     if (!resp.ok) {
       throw new Error(`HTTP error ${resp.status}`);
     }
@@ -651,12 +702,17 @@ async function loadSampleDataset(sampleId) {
 const PARAM_STEP_CONFIG = {
   contrast_low: { step: 1, digits: 0, absMin: 1, absMax: 254 },
   contrast_high: { step: 1, digits: 0, absMin: 2, absMax: 255 },
+  min_contrast: { step: 1, digits: 0, absMin: 0, absMax: 10 },
+  min_cont_len: { step: 1, digits: 0, absMin: 1, absMax: 1000 },
   angle_start: { step: 1.0, digits: 1, absMin: -360.0, absMax: 360.0 },
   angle_extent: { step: 1.0, digits: 1, absMin: 0.0, absMax: 360.0 },
+  angle_step: { step: 1.0, digits: 1, absMin: 0.0, absMax: 360.0 },
   numMatches: { step: 1, digits: 0, absMin: 1, absMax: 100 },
   minScore: { step: 0.01, digits: 2, absMin: 0.0, absMax: 1.0 },
   scale_min: { step: 0.05, digits: 2, absMin: 0.1, absMax: 5.0 },
   scale_max: { step: 0.05, digits: 2, absMin: 0.1, absMax: 5.0 },
+  maxOverLap: { step: 0.01, digits: 2, absMin: 0.0, absMax: 1.0 },
+  greedness: { step: 0.01, digits: 2, absMin: 0.0, absMax: 1.0 },
 };
 
 function setParamValue(key, rawVal) {
@@ -668,15 +724,21 @@ function setParamValue(key, rawVal) {
   } else if (key === 'contrast_high') {
     const minAllowed = state.patConfig.contrast_low + 1;
     state.patConfig.contrast_high = Math.max(minAllowed, Math.min(255, Math.round(rawVal)));
+  } else if (key === 'min_contrast') {
+    state.patConfig.min_contrast = Math.max(0, Math.min(10, Math.round(rawVal)));
+  } else if (key === 'min_cont_len') {
+    state.patConfig.min_cont_len = Math.max(1, Math.min(1000, Math.round(rawVal)));
   } else if (key === 'angle_start') {
     state.patConfig.angle_start = Math.max(-360.0, Math.min(360.0, parseFloat(rawVal.toFixed(1))));
-    const maxExtent = Math.max(0.0, 360.0 - state.patConfig.angle_start);
+    const maxExtent = Math.min(360.0, Math.max(0.0, 360.0 - state.patConfig.angle_start));
     if (state.patConfig.angle_extent > maxExtent) {
       state.patConfig.angle_extent = parseFloat(maxExtent.toFixed(1));
     }
   } else if (key === 'angle_extent') {
-    const maxExtent = Math.max(0.0, 360.0 - state.patConfig.angle_start);
+    const maxExtent = Math.min(360.0, Math.max(0.0, 360.0 - state.patConfig.angle_start));
     state.patConfig.angle_extent = Math.max(0.0, Math.min(maxExtent, parseFloat(rawVal.toFixed(1))));
+  } else if (key === 'angle_step') {
+    state.patConfig.angle_step = Math.max(0.0, Math.min(360.0, parseFloat(rawVal.toFixed(1))));
   } else if (key === 'numMatches') {
     state.matchConfig.numMatches = Math.max(1, Math.min(100, Math.round(rawVal)));
   } else if (key === 'minScore') {
@@ -687,6 +749,10 @@ function setParamValue(key, rawVal) {
   } else if (key === 'scale_max') {
     const minScale = state.matchConfig.scale_min;
     state.matchConfig.scale_max = Math.max(minScale, Math.min(5.0, parseFloat(rawVal.toFixed(2))));
+  } else if (key === 'maxOverLap') {
+    state.matchConfig.maxOverLap = Math.max(0.0, Math.min(1.0, parseFloat(rawVal.toFixed(2))));
+  } else if (key === 'greedness') {
+    state.matchConfig.greedness = Math.max(0.0, Math.min(1.0, parseFloat(rawVal.toFixed(2))));
   }
 
   updateFormControls();
@@ -696,7 +762,7 @@ function stepParam(key, direction) {
   const meta = PARAM_STEP_CONFIG[key];
   if (!meta) return;
 
-  const isMatch = ['numMatches', 'minScore', 'scale_min', 'scale_max'].includes(key);
+  const isMatch = ['numMatches', 'minScore', 'scale_min', 'scale_max', 'maxOverLap', 'greedness'].includes(key);
   const targetObj = isMatch ? state.matchConfig : state.patConfig;
   const currentVal = parseFloat(targetObj[key]);
   const delta = meta.step * direction;
@@ -780,9 +846,13 @@ function getCleanPatConfig() {
   return {
     contrast_low: parseInt(state.patConfig.contrast_low, 10),
     contrast_high: parseInt(state.patConfig.contrast_high, 10),
+    min_contrast: parseInt(state.patConfig.min_contrast, 10),
+    min_cont_len: parseInt(state.patConfig.min_cont_len, 10),
     angle_start: parseFloat(state.patConfig.angle_start),
     angle_extent: parseFloat(state.patConfig.angle_extent),
+    angle_step: parseFloat(state.patConfig.angle_step),
     num_levels: parseInt(state.patConfig.num_levels, 10),
+    use_polarity: parseInt(state.patConfig.use_polarity, 10),
   };
 }
 
@@ -792,6 +862,9 @@ function getCleanMatchConfig() {
     minScore: parseFloat(state.matchConfig.minScore),
     scale_min: parseFloat(state.matchConfig.scale_min),
     scale_max: parseFloat(state.matchConfig.scale_max),
+    subpixel: parseInt(state.matchConfig.subpixel, 10),
+    maxOverLap: parseFloat(state.matchConfig.maxOverLap),
+    greedness: parseFloat(state.matchConfig.greedness),
   };
 }
 
@@ -799,7 +872,7 @@ function updateFormControls() {
   // Operational-level coupled bounds
   const lowMax = Math.max(1, state.patConfig.contrast_high - 1);
   const highMin = state.patConfig.contrast_low + 1;
-  const maxExtent = Math.max(0.0, 360.0 - state.patConfig.angle_start);
+  const maxExtent = Math.min(360.0, Math.max(0.0, 360.0 - state.patConfig.angle_start));
   const scaleMinMax = state.matchConfig.scale_max;
   const scaleMaxMin = state.matchConfig.scale_min;
 
@@ -823,11 +896,18 @@ function updateFormControls() {
   dom.inputContrastLow.value = state.patConfig.contrast_low;
   dom.sliderContrastHigh.value = state.patConfig.contrast_high;
   dom.inputContrastHigh.value = state.patConfig.contrast_high;
+  dom.sliderMinContrast.value = state.patConfig.min_contrast;
+  dom.inputMinContrast.value = state.patConfig.min_contrast;
+  dom.sliderMinContLen.value = state.patConfig.min_cont_len;
+  dom.inputMinContLen.value = state.patConfig.min_cont_len;
+  dom.selectUsePolarity.value = state.patConfig.use_polarity;
 
   dom.sliderAngleStart.value = state.patConfig.angle_start;
   dom.inputAngleStart.value = state.patConfig.angle_start;
   dom.sliderAngleExtent.value = state.patConfig.angle_extent;
   dom.inputAngleExtent.value = state.patConfig.angle_extent;
+  dom.sliderAngleStep.value = state.patConfig.angle_step;
+  dom.inputAngleStep.value = state.patConfig.angle_step;
 
   dom.levelRadios.forEach((r) => {
     r.checked = parseInt(r.value, 10) === state.patConfig.num_levels;
@@ -841,6 +921,11 @@ function updateFormControls() {
   dom.inputScaleMin.value = state.matchConfig.scale_min;
   dom.sliderScaleMax.value = state.matchConfig.scale_max;
   dom.inputScaleMax.value = state.matchConfig.scale_max;
+  dom.selectSubpixel.value = state.matchConfig.subpixel;
+  dom.sliderMaxOverlap.value = state.matchConfig.maxOverLap;
+  dom.inputMaxOverlap.value = state.matchConfig.maxOverLap;
+  dom.sliderGreedness.value = state.matchConfig.greedness;
+  dom.inputGreedness.value = state.matchConfig.greedness;
 
   // Update button enabled/disabled states for extreme bounds
   updateStepperButtonStates();
@@ -857,13 +942,22 @@ function updateStepperButtonStates() {
     } else if (target === 'contrast_high') {
       if (dir === -1) btn.disabled = state.patConfig.contrast_high <= state.patConfig.contrast_low + 1;
       if (dir === 1) btn.disabled = state.patConfig.contrast_high >= 255;
+    } else if (target === 'min_contrast') {
+      if (dir === -1) btn.disabled = state.patConfig.min_contrast <= 0;
+      if (dir === 1) btn.disabled = state.patConfig.min_contrast >= 10;
+    } else if (target === 'min_cont_len') {
+      if (dir === -1) btn.disabled = state.patConfig.min_cont_len <= 1;
+      if (dir === 1) btn.disabled = state.patConfig.min_cont_len >= 1000;
     } else if (target === 'angle_start') {
       if (dir === -1) btn.disabled = state.patConfig.angle_start <= -360.0;
       if (dir === 1) btn.disabled = state.patConfig.angle_start >= 360.0;
     } else if (target === 'angle_extent') {
-      const maxExt = Math.max(0.0, 360.0 - state.patConfig.angle_start);
+      const maxExt = Math.min(360.0, Math.max(0.0, 360.0 - state.patConfig.angle_start));
       if (dir === -1) btn.disabled = state.patConfig.angle_extent <= 0.0;
       if (dir === 1) btn.disabled = state.patConfig.angle_extent >= maxExt;
+    } else if (target === 'angle_step') {
+      if (dir === -1) btn.disabled = state.patConfig.angle_step <= 0.0;
+      if (dir === 1) btn.disabled = state.patConfig.angle_step >= 360.0;
     } else if (target === 'numMatches') {
       if (dir === -1) btn.disabled = state.matchConfig.numMatches <= 1;
       if (dir === 1) btn.disabled = state.matchConfig.numMatches >= 100;
@@ -876,6 +970,12 @@ function updateStepperButtonStates() {
     } else if (target === 'scale_max') {
       if (dir === -1) btn.disabled = state.matchConfig.scale_max <= state.matchConfig.scale_min;
       if (dir === 1) btn.disabled = state.matchConfig.scale_max >= 5.0;
+    } else if (target === 'maxOverLap') {
+      if (dir === -1) btn.disabled = state.matchConfig.maxOverLap <= 0.0;
+      if (dir === 1) btn.disabled = state.matchConfig.maxOverLap >= 1.0;
+    } else if (target === 'greedness') {
+      if (dir === -1) btn.disabled = state.matchConfig.greedness <= 0.0;
+      if (dir === 1) btn.disabled = state.matchConfig.greedness >= 1.0;
     }
   });
 }
@@ -945,7 +1045,7 @@ async function estimateTemplateContrast(showSuccessToast = true) {
   if (label) label.textContent = '分析中…';
 
   try {
-    const resp = await fetch('/api/estimate-contrast-json', {
+    const resp = await fetch(apiUrl('/estimate-contrast-json'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model_base64: state.templateOriginalB64 }),
@@ -1001,7 +1101,7 @@ async function extractTemplateFeatures(isDebounced = false) {
       pat_config: getCleanPatConfig(),
     };
 
-    const resp = await fetch('/api/extract-template-json', {
+    const resp = await fetch(apiUrl('/extract-template-json'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -1092,7 +1192,7 @@ async function runShapeMatch() {
       match_config: getCleanMatchConfig(),
     };
 
-    const resp = await fetch('/api/match-json', {
+    const resp = await fetch(apiUrl('/match-json'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),

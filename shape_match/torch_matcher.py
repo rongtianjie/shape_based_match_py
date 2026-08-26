@@ -9,6 +9,7 @@ from shape_match.types import (
     ResponseImage,
 )
 from shape_match.transforms import build_pose_kernel
+from shape_match.matcher import coarse_search_limits
 
 try:
     import torch
@@ -79,9 +80,7 @@ def coarse_search_pytorch(
     coarse_scales: list[float],
     coarse_angles: list[float],
 ) -> list[Candidate]:
-    per_pose_limit = max(4, matching.num_matches * 2)
-    global_limit = max(24, matching.num_matches * 10)
-    coarse_threshold = max(0.02, matching.min_score * 0.8)
+    coarse_threshold, per_pose_limit, global_limit = coarse_search_limits(matching)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

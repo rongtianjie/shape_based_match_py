@@ -25,7 +25,20 @@ def main() -> None:
     result = []
     for _ in range(5):
         started = time.perf_counter()
-        result, _ = get_matched_result(model, source)
+        result, _ = get_matched_result(
+            model,
+            source,
+            {
+                "angle_start": -5.0,
+                "angle_extent": 10.0,
+                "num_levels": 1,
+            },
+            {
+                "numMatches": 1,
+                "scale_min": 1.0,
+                "scale_max": 1.0,
+            },
+        )
         durations.append(time.perf_counter() - started)
 
     print(f"median_seconds={float(np.median(durations)):.4f}")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from typing import Any, Mapping
 import cv2
 import numpy as np
@@ -15,6 +16,7 @@ from shape_match.matcher import (
     coarse_search,
     nms,
     refine_candidate,
+    refine_subpixel_candidate,
     resample_candidate_patch,
 )
 from shape_match.response_maps import orientation_response_maps
@@ -113,7 +115,15 @@ class ShapeMatcher:
             coarse_gray = source_gray
             image_factor = 1.0
 
-        coarse_responses = orientation_response_maps(coarse_gray, self.pattern_config)
+        coarse_config = self.pattern_config
+        if image_factor != 1.0 and self.pattern_config.min_cont_len > 1:
+            coarse_config = replace(
+                self.pattern_config,
+                min_cont_len=max(
+                    1, int(round(self.pattern_config.min_cont_len * image_factor))
+                ),
+            )
+        coarse_responses = orientation_response_maps(coarse_gray, coarse_config)
         coarse = coarse_search(features, coarse_responses, self.pattern_config, self.match_config, image_factor)
         if not coarse:
             return [], None
@@ -133,6 +143,13 @@ class ShapeMatcher:
                 result = refine_candidate(candidate, features, full_responses, self.pattern_config, self.match_config)
                 if result is not None and result.score >= self.match_config.min_score:
                     refined.append(result)
+
+        refined = [
+            refine_subpixel_candidate(
+                candidate, features, full_responses, self.match_config.subpixel
+            )
+            for candidate in refined
+        ]
 
         # Appearance is only a verification signal.  A template and its target
         # can legitimately have very different foreground/background colours
@@ -168,7 +185,12 @@ class ShapeMatcher:
         if not final_candidates:
             return [], None
 
-        matches = nms(final_candidates, features, self.match_config.num_matches)
+        matches = nms(
+            final_candidates,
+            features,
+            self.match_config.num_matches,
+            self.match_config.max_overlap,
+        )
         if not matches:
             return [], None
 

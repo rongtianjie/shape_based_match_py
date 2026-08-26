@@ -14,6 +14,7 @@ ResponseImage = FloatImage | UInt8Image
 
 # Hyperparameters & algorithmic constants
 NUM_ORIENTATIONS: int = 8
+DIRECTED_NUM_ORIENTATIONS: int = NUM_ORIENTATIONS * 2
 MAX_FEATURES: int = 256
 MIN_FEATURES: int = 8
 
@@ -56,6 +57,10 @@ class PatternConfig:
     angle_start: float
     angle_extent: float
     num_levels: int
+    min_contrast: int = 3
+    min_cont_len: int = 1
+    use_polarity: int = 0
+    angle_step: float = 0.0
     auto_contrast: bool = False
 
 
@@ -67,6 +72,9 @@ class MatchConfig:
     min_score: float
     scale_min: float
     scale_max: float
+    subpixel: int = 1
+    max_overlap: float = 0.5
+    greediness: float = 0.75
 
 
 @dataclass(frozen=True)
@@ -77,7 +85,8 @@ class ModelFeatures:
         offsets: (N, 2) float32 coordinates relative to geometric template center (x, y).
         unit_gradients: (N, 2) float32 normalized gradient directions (gx, gy).
         points: (N, 2) int32 pixel coordinates in template image coordinate system.
-        labels: (N,) uint8 quantized orientation indices in [0, NUM_ORIENTATIONS - 1].
+        labels: (N,) uint8 orientation indices in [0, 7] without polarity
+            or [0, 15] with polarity.
         width: Template width in pixels.
         height: Template height in pixels.
         template_gray: Single-channel grayscale template image.
@@ -92,6 +101,7 @@ class ModelFeatures:
     height: int
     template_gray: UInt8Image
     appearance_mask: UInt8Image | None
+    use_polarity: bool = False
 
 
 @dataclass(frozen=True)

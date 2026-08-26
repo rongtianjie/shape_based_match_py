@@ -85,7 +85,9 @@ def refine_candidates_pytorch(
         # quantization over pi; rounding 0..360 degree phases into 45 degree
         # bins (the previous implementation) produced different labels and
         # could score a real match as background.
-        labels = quantize_orientations(gx.astype(np.float32), gy.astype(np.float32))
+        labels = quantize_orientations(
+            gx.astype(np.float32), gy.astype(np.float32), features.use_polarity
+        )
         labels = labels.reshape(N, -1)
         
         K = len(centres)

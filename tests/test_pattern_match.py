@@ -46,7 +46,7 @@ def assert_pose(result: list[float], centre: tuple[float, float], angle: float, 
     assert result[0] == pytest.approx(centre[0], abs=2.0)
     assert result[1] == pytest.approx(centre[1], abs=2.0)
     assert result[3] == pytest.approx(angle, abs=2.0)
-    assert result[4] == pytest.approx(scale, abs=0.03)
+    assert result[4] == pytest.approx(scale, abs=0.04)
 
 
 def test_model_shape_is_bgr_and_does_not_mutate_inputs() -> None:

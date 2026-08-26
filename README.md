@@ -36,15 +36,22 @@ contrast_low, contrast_high = estimate_contrast_thresholds(model)
 pattern_config = {
     "contrast_low": contrast_low,
     "contrast_high": contrast_high,
+    "min_contrast": 3,
+    "min_cont_len": 1,
+    "use_polarity": 0,
     "angle_start": -20.0,
     "angle_extent": 40.0,
+    "angle_step": 0.0,
     "num_levels": 1,
 }
 match_config = {
+    "subpixel": 1,
     "numMatches": 5,
     "minScore": 0.3,
     "scale_min": 0.8,
     "scale_max": 1.2,
+    "maxOverLap": 0.5,
+    "greedness": 0.75,
 }
 
 model_view = get_model_shape(model, pattern_config)
@@ -73,7 +80,14 @@ if match_view is not None:
 - `shape_match.matcher`: 粗精分层搜索、局部网格精细化、外观验证与 NMS 抑制
 - `shape_match.visualization`: 特征点分布与匹配边界框渲染
 - `shape_match.engine`: `TemplateModel`（模板对象）与 `ShapeMatcher`（匹配引擎）
-- `pattern_match.py`: 顶层门面模块，保持与原始公共接口 100% 兼容
+- `pattern_match.py`: 顶层门面模块，保持与原始函数签名和返回结构兼容
+
+兼容参数会真实参与算法：`use_polarity` 切换无向/有向梯度，
+`min_contrast` 和 `min_cont_len` 过滤模型及搜索图边缘，`angle_step`
+控制粗角度采样，`subpixel` 控制中心坐标细化，`maxOverLap` 控制
+旋转框 NMS，`greedness` 控制粗搜索剪枝。它们保持旧接口的用途和默认值，
+但纯 Python/OpenCV 实现与原生 DLL 的内部离散化公式不同，因此不保证逐像素、
+逐分数完全一致。
 
 ## 算法概览
 

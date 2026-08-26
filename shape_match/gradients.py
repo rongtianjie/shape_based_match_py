@@ -10,6 +10,7 @@ from shape_match.image import to_gray, validate_image
 from shape_match.types import (
     AUTO_CANNY_HIGH_RATIO,
     AUTO_CANNY_LOW_RATIO,
+    DIRECTED_NUM_ORIENTATIONS,
     MIN_FEATURES,
     NUM_ORIENTATIONS,
     FloatImage,
@@ -24,6 +25,7 @@ _CONTRAST_LOW_RATIO_MIN: float = 0.40
 _CONTRAST_LOW_RATIO_MAX: float = 0.75
 _CONTRAST_LOW_RATIO_RAMP_START: float = 20.0
 _CONTRAST_LOW_RATIO_RAMP_END: float = 45.0
+_SOBEL_CONTRAST_SCALE: float = 25.5
 
 
 def gradient_fields(gray: UInt8Image) -> tuple[FloatImage, FloatImage, FloatImage, FloatImage]:
@@ -35,21 +37,48 @@ def gradient_fields(gray: UInt8Image) -> tuple[FloatImage, FloatImage, FloatImag
     return gx, gy, magnitude, safe
 
 
-def quantize_orientations(gx: FloatImage, gy: FloatImage) -> UInt8Image:
-    """Quantize undirected gradient orientations into [0, NUM_ORIENTATIONS - 1] bins.
+def quantize_orientations(
+    gx: FloatImage, gy: FloatImage, use_polarity: bool = False
+) -> UInt8Image:
+    """Quantize gradient orientations, optionally preserving gradient polarity.
 
-    Theta and theta + pi share the same label (undirected / polarity invariant).
+    With ``use_polarity=False``, theta and theta + pi share one of eight
+    labels.  With ``use_polarity=True`` they occupy distinct labels in a
+    sixteen-bin full-circle representation.
     """
     # ``cv2.phase`` uses an optimized vectorized atan2 implementation.  The
     # phase is in [0, 2*pi), so folding theta and theta + pi is equivalent to
     # taking the bin index modulo NUM_ORIENTATIONS; this avoids an additional
     # full-size floating-point modulo array on megapixel images.
     angles = cv2.phase(gx, gy, angleInDegrees=False)
-    labels = np.floor(
-        (angles + np.pi / (2 * NUM_ORIENTATIONS))
-        * (NUM_ORIENTATIONS / np.pi)
+    orientation_count = DIRECTED_NUM_ORIENTATIONS if use_polarity else NUM_ORIENTATIONS
+    period = 2.0 * np.pi if use_polarity else np.pi
+    labels = np.floor((angles + period / (2 * orientation_count)) * (orientation_count / period))
+    return np.mod(labels.astype(np.int16), orientation_count).astype(np.uint8).reshape(gx.shape)
+
+
+def _remove_short_edge_components(edges: np.ndarray, min_cont_len: int) -> np.ndarray:
+    """Remove 8-connected components whose longest contour is too short."""
+    if min_cont_len <= 1 or not np.any(edges):
+        return edges
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(
+        edges.astype(np.uint8), connectivity=8
     )
-    return np.mod(labels.astype(np.int16), NUM_ORIENTATIONS).astype(np.uint8).reshape(gx.shape)
+    keep = np.zeros(count, dtype=bool)
+    for label in range(1, count):
+        # Skip obviously short components before allocating their masks.
+        if stats[label, cv2.CC_STAT_AREA] < 2:
+            continue
+        component = np.where(labels == label, 255, 0).astype(np.uint8)
+        contours, _ = cv2.findContours(
+            component, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE
+        )
+        contour_length = max(
+            (cv2.arcLength(contour, closed=False) for contour in contours),
+            default=0.0,
+        )
+        keep[label] = contour_length >= float(min_cont_len)
+    return keep[labels]
 
 
 def auto_canny_thresholds(magnitude: FloatImage) -> tuple[int, int]:
@@ -123,7 +152,14 @@ def consistent_edges(
         low, high = config.contrast_low, config.contrast_high
 
     edges = cv2.Canny(gray, low, high, apertureSize=3, L2gradient=True) > 0
-    labels = quantize_orientations(gx, gy)
+    # The legacy native matcher exposes min_contrast on an approximately
+    # 0..10 scale.  A full 8-bit vertical step produces a 3x3 Sobel response
+    # of 4*255.  Scaling by one tenth of the input intensity range, then
+    # clipping, gives the native parameter its observed practical 0..10 range.
+    normalized_contrast = np.minimum(magnitude / _SOBEL_CONTRAST_SCALE, 10.0)
+    edges &= normalized_contrast >= float(config.min_contrast)
+    edges = _remove_short_edge_components(edges, config.min_cont_len)
+    labels = quantize_orientations(gx, gy, bool(config.use_polarity))
 
     # Each edge pixel already contributes one vote to its own 3x3 window, so
     # ``votes >= 2`` is exactly equivalent to finding one 8-connected edge

@@ -25,7 +25,6 @@ from shape_match.types import (
     FINE_ANGLE_STEP,
     FINE_SCALE_RADIUS,
     FINE_SCALE_STEP,
-    NMS_IOU,
     Candidate,
     FloatImage,
     MatchConfig,
@@ -90,10 +89,11 @@ def coarse_angles(config: PatternConfig) -> list[float]:
     """Generate coarse search angle sequence based on pattern configuration."""
     if math.isclose(config.angle_extent, 0.0):
         return [config.angle_start]
+    step = config.angle_step if config.angle_step > 0.0 else COARSE_ANGLE_STEP
     values = sample_interval(
         config.angle_start,
         config.angle_start + config.angle_extent,
-        COARSE_ANGLE_STEP,
+        step,
         cyclic=math.isclose(config.angle_extent, 360.0),
     )
 
@@ -103,7 +103,7 @@ def coarse_angles(config: PatternConfig) -> list[float]:
     # inside the configured interval (including a full-turn interval); keep
     # the list sorted for deterministic CPU/GPU candidate ordering.
     stop = config.angle_start + config.angle_extent
-    if (config.angle_start <= 0.0 <= stop) and not any(
+    if config.angle_step == 0.0 and (config.angle_start <= 0.0 <= stop) and not any(
         math.isclose(value, 0.0, abs_tol=1e-7) for value in values
     ):
         values.append(0.0)
@@ -114,6 +114,25 @@ def coarse_angles(config: PatternConfig) -> list[float]:
 def coarse_scales(config: MatchConfig) -> list[float]:
     """Generate coarse search scale sequence based on match configuration."""
     return sample_interval(config.scale_min, config.scale_max, COARSE_SCALE_STEP)
+
+
+def coarse_search_limits(config: MatchConfig) -> tuple[float, int, int]:
+    """Translate HALCON-style greediness into coarse-search pruning controls.
+
+    A value of zero explores more low-scoring hypotheses; a value of one
+    retains only hypotheses already close to the requested final score.
+    Final candidates are always checked against ``minScore``.
+    """
+    requested = max(1, config.num_matches)
+    threshold_factor = 0.2 + 0.8 * config.greediness
+    threshold = max(0.02, config.min_score * threshold_factor)
+    per_pose_multiplier = max(2, int(math.ceil(5.0 - 4.0 * config.greediness)))
+    global_multiplier = max(10, int(math.ceil(40.0 - 40.0 * config.greediness)))
+    return (
+        threshold,
+        max(4, requested * per_pose_multiplier),
+        max(24, requested * global_multiplier),
+    )
 
 
 def top_local_peaks(score_map: FloatImage, threshold: float, limit: int) -> list[tuple[float, int, int]]:
@@ -140,7 +159,7 @@ def coarse_search(
     image_factor: float,
 ) -> list[Candidate]:
     """Perform coarse grid search over discrete poses and extract candidate peak locations."""
-    per_pose_limit = max(4, matching.num_matches * 2)
+    coarse_threshold, per_pose_limit, global_limit = coarse_search_limits(matching)
     candidates: list[Candidate] = []
     scaled_features = ModelFeatures(
         offsets=features.offsets * image_factor,
@@ -151,9 +170,9 @@ def coarse_search(
         height=max(1, int(round(features.height * image_factor))),
         template_gray=features.template_gray,
         appearance_mask=features.appearance_mask,
+        use_polarity=features.use_polarity,
     )
 
-    coarse_threshold = max(0.02, matching.min_score * 0.8)
     scales = coarse_scales(matching)
     angles = coarse_angles(pattern)
     
@@ -208,7 +227,6 @@ def coarse_search(
             candidates.extend(evaluate_pose(pose_spec))
 
     candidates.sort(key=lambda candidate: candidate.score, reverse=True)
-    global_limit = max(24, matching.num_matches * 10)
     return candidates[:global_limit]
 
 
@@ -231,9 +249,13 @@ def fine_pose_values(
 ) -> tuple[list[float], list[float]]:
     """Generate fine angle and scale sample values surrounding a coarse candidate pose."""
     angles: list[float] = []
+    angle_radius = max(
+        FINE_ANGLE_RADIUS,
+        pattern.angle_step * 0.5 if pattern.angle_step > 0.0 else 0.0,
+    )
     for angle in sample_interval(
-        candidate.angle - FINE_ANGLE_RADIUS,
-        candidate.angle + FINE_ANGLE_RADIUS,
+        candidate.angle - angle_radius,
+        candidate.angle + angle_radius,
         FINE_ANGLE_STEP,
     ):
         canonical = canonical_angle(angle, pattern)
@@ -275,6 +297,131 @@ def scores_at_centres(
     if responses.dtype == np.uint8:
         scores *= np.float32(1.0 / 255.0)
     return scores
+
+
+def score_at_subpixel_centre(
+    responses: ResponseImage,
+    offsets: FloatImage,
+    labels: UInt8Image,
+    cx: float,
+    cy: float,
+) -> float:
+    """Score one pose using bilinear response-map interpolation."""
+    xs = offsets[:, 0] + np.float32(cx)
+    ys = offsets[:, 1] + np.float32(cy)
+    image_height, image_width = responses.shape[1:]
+    if (
+        np.any(xs < 0.0)
+        or np.any(ys < 0.0)
+        or np.any(xs > image_width - 1)
+        or np.any(ys > image_height - 1)
+    ):
+        return float("-inf")
+
+    x0 = np.floor(xs).astype(np.int32)
+    y0 = np.floor(ys).astype(np.int32)
+    x1 = np.minimum(x0 + 1, image_width - 1)
+    y1 = np.minimum(y0 + 1, image_height - 1)
+    wx = xs - x0
+    wy = ys - y0
+    value_scale = np.float32(1.0 / 255.0) if responses.dtype == np.uint8 else np.float32(1.0)
+    value_00 = responses[labels, y0, x0].astype(np.float32) * value_scale
+    value_10 = responses[labels, y0, x1].astype(np.float32) * value_scale
+    value_01 = responses[labels, y1, x0].astype(np.float32) * value_scale
+    value_11 = responses[labels, y1, x1].astype(np.float32) * value_scale
+    values = (
+        value_00 * (1.0 - wx) * (1.0 - wy)
+        + value_10 * wx * (1.0 - wy)
+        + value_01 * (1.0 - wx) * wy
+        + value_11 * wx * wy
+    )
+    return float(np.mean(values))
+
+
+def _parabolic_offset(negative: float, centre: float, positive: float) -> float:
+    denominator = negative - 2.0 * centre + positive
+    if denominator >= -1e-9:
+        return 0.0
+    return float(np.clip(0.5 * (negative - positive) / denominator, -0.5, 0.5))
+
+
+def refine_subpixel_candidate(
+    candidate: Candidate,
+    features: ModelFeatures,
+    responses: ResponseImage,
+    mode: int,
+) -> Candidate:
+    """Refine a candidate centre by interpolation (1) or quadratic least squares (2)."""
+    base_x = int(round(candidate.cx))
+    base_y = int(round(candidate.cy))
+    if mode == 0:
+        return Candidate(float(base_x), float(base_y), candidate.score, candidate.angle, candidate.scale)
+
+    offsets, _, labels, corners = transformed_geometry(features, candidate.angle, candidate.scale)
+    neighbourhood = np.asarray(
+        [(base_x + dx, base_y + dy) for dy in (-1, 0, 1) for dx in (-1, 0, 1)],
+        dtype=np.float32,
+    )
+    if not np.all(
+        valid_centres(
+            neighbourhood,
+            corners,
+            responses.shape[2],
+            responses.shape[1],
+        )
+    ):
+        return Candidate(float(base_x), float(base_y), candidate.score, candidate.angle, candidate.scale)
+    surface = np.empty((3, 3), dtype=np.float64)
+    for row, dy in enumerate((-1, 0, 1)):
+        for column, dx in enumerate((-1, 0, 1)):
+            surface[row, column] = score_at_subpixel_centre(
+                responses, offsets, labels, float(base_x + dx), float(base_y + dy)
+            )
+    if not np.all(np.isfinite(surface)):
+        return Candidate(float(base_x), float(base_y), candidate.score, candidate.angle, candidate.scale)
+    if float(np.ptp(surface)) < 1e-6:
+        return Candidate(float(base_x), float(base_y), candidate.score, candidate.angle, candidate.scale)
+
+    if mode == 1:
+        delta_x = _parabolic_offset(surface[1, 0], surface[1, 1], surface[1, 2])
+        delta_y = _parabolic_offset(surface[0, 1], surface[1, 1], surface[2, 1])
+    else:
+        coordinates = np.asarray(
+            [(x, y) for y in (-1.0, 0.0, 1.0) for x in (-1.0, 0.0, 1.0)],
+            dtype=np.float64,
+        )
+        design = np.column_stack(
+            (
+                coordinates[:, 0] ** 2,
+                coordinates[:, 1] ** 2,
+                coordinates[:, 0] * coordinates[:, 1],
+                coordinates[:, 0],
+                coordinates[:, 1],
+                np.ones(9),
+            )
+        )
+        coefficients, *_ = np.linalg.lstsq(design, surface.ravel(), rcond=None)
+        a, b, cross, d, e, _ = coefficients
+        hessian = np.asarray(((2.0 * a, cross), (cross, 2.0 * b)), dtype=np.float64)
+        if (
+            np.all(np.linalg.eigvalsh(hessian) < -1e-9)
+            and np.linalg.cond(hessian) < 1e6
+        ):
+            delta_x, delta_y = np.linalg.solve(hessian, -np.asarray((d, e), dtype=np.float64))
+            delta_x = float(np.clip(delta_x, -0.5, 0.5))
+            delta_y = float(np.clip(delta_y, -0.5, 0.5))
+        else:
+            delta_x = delta_y = 0.0
+
+    refined_x = float(base_x + delta_x)
+    refined_y = float(base_y + delta_y)
+    return Candidate(
+        refined_x,
+        refined_y,
+        candidate.score,
+        candidate.angle,
+        candidate.scale,
+    )
 
 
 def refine_candidate(
@@ -370,16 +517,21 @@ def appearance_score(
     return min(template_contrast, patch_contrast) / max(template_contrast, patch_contrast)
 
 
-def nms(candidates: list[Candidate], features: ModelFeatures, limit: int) -> list[Candidate]:
+def nms(
+    candidates: list[Candidate],
+    features: ModelFeatures,
+    limit: int,
+    max_overlap: float = 0.5,
+) -> list[Candidate]:
     """Perform non-maximum suppression using quadrilateral polygon IoU."""
     selected: list[Candidate] = []
     polygons: list[FloatImage] = []
     for candidate in sorted(candidates, key=lambda item: item.score, reverse=True):
         polygon = candidate_polygon(candidate, features)
-        if any(polygon_iou(polygon, previous) > NMS_IOU for previous in polygons):
+        if any(polygon_iou(polygon, previous) > max_overlap for previous in polygons):
             continue
         selected.append(candidate)
         polygons.append(polygon)
-        if len(selected) == limit:
+        if limit > 0 and len(selected) == limit:
             break
     return selected
