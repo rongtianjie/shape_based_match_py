@@ -145,7 +145,13 @@ def get_sample_images(sample_id: str) -> tuple[np.ndarray, np.ndarray, dict[str,
             raise HTTPException(status_code=404, detail="Sample dataset files not found")
         model = cv2.imread(str(model_path), cv2.IMREAD_COLOR)
         source = cv2.imread(str(source_path), cv2.IMREAD_COLOR)
-        default_pat = DEFAULT_PAT_CONFIG.copy()
+        default_pat = {
+            **DEFAULT_PAT_CONFIG,
+            "contrast_low": 10,
+            "contrast_high": 30,
+            "angle_extent": 0.0,
+            "num_levels": 1,
+        }
         default_match = {**DEFAULT_MATCH_CONFIG, "numMatches": 8}
         return model, source, default_pat, default_match
     elif sample_id == "synthetic_case":
@@ -198,7 +204,13 @@ def list_samples() -> JSONResponse:
             "id": "meiqua_case2",
             "name": "工业零件 (Meiqua Case 2)",
             "description": "真实工业灰度金属零件，包含多个旋转与缩放实例，带有轻微噪声与背景干扰。",
-            "default_pat": DEFAULT_PAT_CONFIG,
+            "default_pat": {
+                **DEFAULT_PAT_CONFIG,
+                "contrast_low": 10,
+                "contrast_high": 30,
+                "angle_extent": 0.0,
+                "num_levels": 1,
+            },
             "default_match": {**DEFAULT_MATCH_CONFIG, "numMatches": 8},
         },
         {
@@ -548,6 +560,15 @@ def match_json_endpoint(req: MatchRequest) -> JSONResponse:
 # Dynamic static files mount
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon() -> FileResponse:
+    """Serve favicon.ico at root URL."""
+    fav_file = STATIC_DIR / "favicon.ico"
+    if not fav_file.exists():
+        raise HTTPException(status_code=404, detail="Favicon not found")
+    return FileResponse(str(fav_file), media_type="image/x-icon")
 
 
 @app.get("/")
