@@ -103,3 +103,28 @@ def polygon_iou(first: FloatImage, second: FloatImage) -> float:
     intersection, _ = cv2.intersectConvexConvex(first, second)
     union = area_first + area_second - float(intersection)
     return float(intersection) / union if union > 0.0 else 0.0
+
+
+def candidate_in_fov_ratio(
+    candidate: Candidate,
+    features: ModelFeatures,
+    image_width: int,
+    image_height: int,
+) -> float:
+    """Calculate the fraction of the candidate's bounding polygon area inside the image FOV [0, 1]."""
+    poly = candidate_polygon(candidate, features)
+    total_area = abs(float(cv2.contourArea(poly)))
+    if total_area <= 0.0:
+        return 0.0
+    image_poly = np.asarray(
+        (
+            (0.0, 0.0),
+            (float(image_width), 0.0),
+            (float(image_width), float(image_height)),
+            (0.0, float(image_height)),
+        ),
+        dtype=np.float32,
+    )
+    inter_area, _ = cv2.intersectConvexConvex(poly, image_poly)
+    return float(inter_area) / total_area
+

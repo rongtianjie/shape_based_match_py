@@ -18,6 +18,8 @@ from pydantic import BaseModel, Field
 import pattern_match
 from pattern_match import estimate_contrast_thresholds, get_matched_result, get_model_shape
 
+from shape_match.config import MATCH_DEFAULTS, PAT_DEFAULTS
+
 logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger("web_app")
 
@@ -64,47 +66,26 @@ def encode_image_base64(image: np.ndarray, quality: int = 90) -> str:
     return f"data:{mime};base64,{encoded}"
 
 
-_PAT_KEYS = {
-    "contrast_low",
-    "contrast_high",
-    "min_contrast",
-    "min_cont_len",
-    "num_levels",
-    "use_polarity",
-    "angle_start",
-    "angle_extent",
-    "angle_step",
-}
-_MATCH_KEYS = {
-    "subpixel",
-    "scale_min",
-    "scale_max",
-    "minScore",
-    "maxOverLap",
-    "greedness",
-    "numMatches",
-}
+_PAT_KEYS = set(PAT_DEFAULTS.keys())
+_MATCH_KEYS = set(MATCH_DEFAULTS.keys())
 
-DEFAULT_PAT_CONFIG: dict[str, Any] = {
-    "contrast_low": 3,
-    "contrast_high": 5,
-    "min_contrast": 3,
-    "min_cont_len": 1,
-    "num_levels": 0,
-    "use_polarity": 0,
-    "angle_start": 0.0,
-    "angle_extent": 360.0,
-    "angle_step": 0.0,
-}
-DEFAULT_MATCH_CONFIG: dict[str, Any] = {
-    "subpixel": 1,
-    "scale_min": 0.8,
-    "scale_max": 1.2,
-    "minScore": 0.15,
-    "maxOverLap": 0.5,
-    "greedness": 0.75,
-    "numMatches": 1,
-}
+DEFAULT_PAT_CONFIG: dict[str, Any] = dict(PAT_DEFAULTS)
+DEFAULT_MATCH_CONFIG: dict[str, Any] = dict(MATCH_DEFAULTS)
+
+
+@app.get("/api/config/defaults")
+@app.get("/api/defaults")
+def get_config_defaults() -> JSONResponse:
+    """Return default parameter configurations from config.py."""
+    return JSONResponse(
+        content={
+            "success": True,
+            "pat_defaults": dict(PAT_DEFAULTS),
+            "match_defaults": dict(MATCH_DEFAULTS),
+            "default_pat": dict(PAT_DEFAULTS),
+            "default_match": dict(MATCH_DEFAULTS),
+        }
+    )
 
 
 def filter_pat_config(config: dict[str, Any] | None) -> dict[str, Any]:

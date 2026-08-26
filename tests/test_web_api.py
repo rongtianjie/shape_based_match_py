@@ -210,6 +210,24 @@ class TestWebApi(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(resp.json()["success"])
 
+    def test_config_defaults(self):
+        from shape_match.config import MATCH_DEFAULTS, PAT_DEFAULTS
+        from web.app import DEFAULT_MATCH_CONFIG, DEFAULT_PAT_CONFIG
+
+        self.assertEqual(DEFAULT_PAT_CONFIG, PAT_DEFAULTS)
+        self.assertEqual(DEFAULT_MATCH_CONFIG, MATCH_DEFAULTS)
+
+        resp = client.get("/api/config/defaults")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["pat_defaults"], PAT_DEFAULTS)
+        self.assertEqual(data["match_defaults"], MATCH_DEFAULTS)
+
+        resp_alias = client.get("/api/defaults")
+        self.assertEqual(resp_alias.status_code, 200)
+        self.assertEqual(resp_alias.json()["pat_defaults"], PAT_DEFAULTS)
+
 
 if __name__ == "__main__":
     unittest.main()

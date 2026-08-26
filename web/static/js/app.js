@@ -21,17 +21,17 @@ const state = {
   matchViewB64: null,
   sourceDim: { width: 0, height: 0 },
 
-  // Config parameters
+  // Parameter defaults (aligned with shape_match.config.py PAT_DEFAULTS and MATCH_DEFAULTS)
   patConfig: {
     contrast_low: 3,
     contrast_high: 5,
-    min_contrast: 3,
+    min_contrast: 1,
     min_cont_len: 1,
-    angle_start: 0.0,
-    angle_extent: 360.0,
-    angle_step: 0.0,
-    num_levels: 0,
+    num_levels: 1,
     use_polarity: 0,
+    angle_start: 0.0,
+    angle_extent: 0.0,
+    angle_step: 0.0,
   },
 
   matchConfig: {
@@ -71,6 +71,29 @@ const state = {
   isMatching: false,
 };
 
+// Parameter default templates (aligned with shape_match/config.py)
+const DEFAULT_PAT_CONFIG = {
+  contrast_low: 3,
+  contrast_high: 5,
+  min_contrast: 1,
+  min_cont_len: 1,
+  num_levels: 1,
+  use_polarity: 0,
+  angle_start: 0.0,
+  angle_extent: 0.0,
+  angle_step: 0.0,
+};
+
+const DEFAULT_MATCH_CONFIG = {
+  subpixel: 1,
+  scale_min: 0.8,
+  scale_max: 1.2,
+  minScore: 0.15,
+  maxOverLap: 0.5,
+  greedness: 0.75,
+  numMatches: 1,
+};
+
 // DOM Element Cache
 const dom = {};
 
@@ -84,12 +107,41 @@ function apiUrl(path) {
   return `${pagePath}api/${String(path).replace(/^\/+/, '')}`;
 }
 
+async function loadConfigDefaults() {
+  try {
+    const resp = await fetch(apiUrl('/config/defaults'));
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (data && data.success) {
+      const patDef = data.pat_defaults || data.default_pat;
+      const matchDef = data.match_defaults || data.default_match;
+      if (patDef) {
+        Object.assign(DEFAULT_PAT_CONFIG, patDef);
+        if (!state.templateFile && !state.sampleId) {
+          state.patConfig = { ...DEFAULT_PAT_CONFIG };
+        }
+      }
+      if (matchDef) {
+        Object.assign(DEFAULT_MATCH_CONFIG, matchDef);
+        if (!state.sourceFile && !state.sampleId) {
+          state.matchConfig = { ...DEFAULT_MATCH_CONFIG };
+        }
+      }
+      updateFormControls();
+      validateAllConfigs();
+    }
+  } catch (err) {
+    console.debug('Using built-in config defaults:', err);
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   initDomElements();
   initEventListeners();
   initCanvasViewport();
   updateFormControls();
   validateAllConfigs();
+  loadConfigDefaults();
 
   // Default theme is modern light style
   const savedTheme = localStorage.getItem('shapematch_theme') || 'light';
@@ -633,26 +685,8 @@ function resetAll() {
   clearSource();
   dom.sampleSelect.value = '';
 
-  state.patConfig = {
-    contrast_low: 3,
-    contrast_high: 5,
-    min_contrast: 3,
-    min_cont_len: 1,
-    angle_start: 0.0,
-    angle_extent: 360.0,
-    angle_step: 0.0,
-    num_levels: 0,
-    use_polarity: 0,
-  };
-  state.matchConfig = {
-    numMatches: 1,
-    minScore: 0.15,
-    scale_min: 0.8,
-    scale_max: 1.2,
-    subpixel: 1,
-    maxOverLap: 0.5,
-    greedness: 0.75,
-  };
+  state.patConfig = { ...DEFAULT_PAT_CONFIG };
+  state.matchConfig = { ...DEFAULT_MATCH_CONFIG };
 
   updateFormControls();
   validateAllConfigs();

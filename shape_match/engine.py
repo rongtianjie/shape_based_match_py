@@ -20,9 +20,11 @@ from shape_match.matcher import (
     resample_candidate_patch,
 )
 from shape_match.response_maps import orientation_response_maps
+from shape_match.transforms import candidate_in_fov_ratio
 from shape_match.types import (
     APPEARANCE_MIN_SCORE,
     MIN_FEATURES,
+    MIN_VISIBLE_AREA_RATIO,
     Candidate,
     MatchConfig,
     ModelFeatures,
@@ -150,6 +152,14 @@ class ShapeMatcher:
             )
             for candidate in refined
         ]
+        source_height, source_width = source_gray.shape[:2]
+        refined = [
+            candidate
+            for candidate in refined
+            if candidate_in_fov_ratio(candidate, features, source_width, source_height) > MIN_VISIBLE_AREA_RATIO
+        ]
+        if not refined:
+            return [], None
 
         # Appearance is only a verification signal.  A template and its target
         # can legitimately have very different foreground/background colours

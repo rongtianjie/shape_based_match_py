@@ -23,17 +23,28 @@ def make_model() -> np.ndarray:
     return cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
 
 
+from shape_match.config import MATCH_DEFAULTS, PAT_DEFAULTS
+
+
 def test_legacy_defaults_and_all_legacy_keys_are_accepted() -> None:
     pat = parse_pattern_config()
-    assert (pat.contrast_low, pat.contrast_high) == (3, 5)
-    assert (pat.min_contrast, pat.min_cont_len) == (3, 1)
-    assert (pat.num_levels, pat.use_polarity) == (0, 0)
-    assert (pat.angle_start, pat.angle_extent, pat.angle_step) == (0.0, 360.0, 0.0)
+    assert (pat.contrast_low, pat.contrast_high) == (PAT_DEFAULTS["contrast_low"], PAT_DEFAULTS["contrast_high"])
+    assert (pat.min_contrast, pat.min_cont_len) == (PAT_DEFAULTS["min_contrast"], PAT_DEFAULTS["min_cont_len"])
+    assert (pat.num_levels, pat.use_polarity) == (PAT_DEFAULTS["num_levels"], PAT_DEFAULTS["use_polarity"])
+    assert (pat.angle_start, pat.angle_extent, pat.angle_step) == (
+        PAT_DEFAULTS["angle_start"],
+        PAT_DEFAULTS["angle_extent"],
+        PAT_DEFAULTS["angle_step"],
+    )
 
     match = parse_match_config()
-    assert (match.scale_min, match.scale_max) == (0.8, 1.2)
-    assert (match.min_score, match.num_matches) == (0.15, 1)
-    assert (match.subpixel, match.max_overlap, match.greediness) == (1, 0.5, 0.75)
+    assert (match.scale_min, match.scale_max) == (MATCH_DEFAULTS["scale_min"], MATCH_DEFAULTS["scale_max"])
+    assert (match.min_score, match.num_matches) == (MATCH_DEFAULTS["minScore"], MATCH_DEFAULTS["numMatches"])
+    assert (match.subpixel, match.max_overlap, match.greediness) == (
+        MATCH_DEFAULTS["subpixel"],
+        MATCH_DEFAULTS["maxOverLap"],
+        MATCH_DEFAULTS["greedness"],
+    )
 
     model = make_model()
     assert get_model_shape(

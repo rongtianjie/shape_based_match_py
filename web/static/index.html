@@ -280,12 +280,12 @@
                   <button type="button" class="micro-step-btn" data-step-target="min_contrast" data-step-dir="-1" title="减少 1">
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                   </button>
-                  <input type="range" id="slider-min-contrast" min="0" max="10" step="1" value="3" class="custom-slider">
+                  <input type="range" id="slider-min-contrast" min="0" max="10" step="1" value="1" class="custom-slider">
                   <button type="button" class="micro-step-btn" data-step-target="min_contrast" data-step-dir="1" title="增加 1">
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                   </button>
                 </div>
-                <input type="number" id="input-min-contrast" min="0" max="10" step="1" value="3" class="number-input">
+                <input type="number" id="input-min-contrast" min="0" max="10" step="1" value="1" class="number-input">
               </div>
 
               <!-- Min Contour Length -->
@@ -358,12 +358,12 @@
                   <button type="button" class="micro-step-btn" data-step-target="angle_extent" data-step-dir="-1" title="减少 1°">
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                   </button>
-                   <input type="range" id="slider-angle-extent" min="0" max="360" step="1" value="360" class="custom-slider">
+                   <input type="range" id="slider-angle-extent" min="0" max="360" step="1" value="0" class="custom-slider">
                   <button type="button" class="micro-step-btn" data-step-target="angle_extent" data-step-dir="1" title="增加 1°">
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                   </button>
                 </div>
-                 <input type="number" id="input-angle-extent" min="0" max="360" step="0.5" value="360" class="number-input">
+                 <input type="number" id="input-angle-extent" min="0" max="360" step="0.5" value="0" class="number-input">
               </div>
 
               <!-- Angle Step -->
@@ -398,13 +398,13 @@
               </div>
 
               <div class="segmented-control">
-                <input type="radio" id="level-0" name="num_levels" value="0" checked>
+                <input type="radio" id="level-0" name="num_levels" value="0">
                 <label for="level-0" class="segmented-option">
                   <span class="opt-title">0: 原图搜索</span>
                   <span class="opt-sub">超小目标精细</span>
                 </label>
 
-                <input type="radio" id="level-1" name="num_levels" value="1">
+                <input type="radio" id="level-1" name="num_levels" value="1" checked>
                 <label for="level-1" class="segmented-option">
                   <span class="opt-title">1: 金字塔加速 (推荐)</span>
                   <span class="opt-sub">粗搜+细化，速度快</span>

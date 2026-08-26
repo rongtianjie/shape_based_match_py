@@ -42,8 +42,8 @@ def place_model(
         ("right_boundary", (305.0, 137.0)),
         ("top_boundary", (160.0, 15.0)),
         ("bottom_boundary", (160.0, 245.0)),
-        ("top_left_corner", (18.0, 16.0)),
-        ("bottom_right_corner", (302.0, 244.0)),
+        ("top_left_corner", (25.0, 22.0)),
+        ("bottom_right_corner", (295.0, 238.0)),
     ],
 )
 def test_partial_fov_boundary_matching(name: str, centre: tuple[float, float]) -> None:
@@ -136,11 +136,19 @@ def test_partial_fov_multiple_occurrences() -> None:
     assert show is not None
 
 
-def test_partial_fov_rejects_insufficient_visibility() -> None:
-    """Verify that marks placed almost entirely outside the FOV (<5% visible) are not matched."""
+@pytest.mark.parametrize(
+    ("name", "centre"),
+    [
+        ("extreme_out_of_fov", (-40.0, 150.0)),
+        ("left_under_50_percent", (-10.0, 137.0)),
+        ("top_under_50_percent", (160.0, -10.0)),
+        ("corner_under_50_percent", (12.0, 12.0)),
+    ],
+)
+def test_partial_fov_rejects_insufficient_visibility(name: str, centre: tuple[float, float]) -> None:
+    """Verify that marks whose remaining area in FOV is <= 50% are NOT matched."""
     model = make_model()
-    source = np.zeros((300, 400, 3), dtype=np.uint8)
-    centre = (-40.0, 150.0)
+    source = np.zeros((260, 320, 3), dtype=np.uint8)
     place_model(source, model, centre)
 
     results, show = get_matched_result(
@@ -153,7 +161,8 @@ def test_partial_fov_rejects_insufficient_visibility() -> None:
             "angle_extent": 0.0,
             "num_levels": 1,
         },
-        {"numMatches": 1, "minScore": 0.5},
+        {"numMatches": 1, "minScore": 0.5, "scale_min": 1.0, "scale_max": 1.0},
     )
 
-    assert results == []
+    assert results == [], f"Should not match mark with <= 50% remaining area for {name}"
+

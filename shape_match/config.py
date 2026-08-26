@@ -11,12 +11,12 @@ from shape_match.types import MatchConfig, PatternConfig
 PAT_DEFAULTS: dict[str, int | float] = {
     "contrast_low": 3,
     "contrast_high": 5,
-    "min_contrast": 3,
+    "min_contrast": 1,
     "min_cont_len": 1,
-    "num_levels": 0,
+    "num_levels": 1,
     "use_polarity": 0,
     "angle_start": 0.0,
-    "angle_extent": 360.0,
+    "angle_extent": 0.0,
     "angle_step": 0.0,
 }
 
