@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+import sys
 import time
 
 import cv2
 import numpy as np
+
+# Ensure project root is in sys.path when run directly
+PROJ_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJ_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJ_ROOT))
 
 from pattern_match import get_matched_result
 
