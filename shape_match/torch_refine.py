@@ -114,7 +114,7 @@ def refine_candidates_pytorch(
         scores[vis_count < min_vis] = -1.0
         
         max_score = torch.max(scores)
-        if max_score > 0.0:
+        if max_score >= matching.min_score:
             flat_idx = torch.argmax(scores).item()
             best_n = flat_idx // K
             best_k = flat_idx % K

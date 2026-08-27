@@ -13,12 +13,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import numpy as np
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
-import pattern_match
 from pattern_match import estimate_contrast_thresholds, get_matched_result, get_model_shape
-
-from shape_match.config import MATCH_DEFAULTS, PAT_DEFAULTS
+from shape_match.config import MATCH_DEFAULTS, PAT_DEFAULTS, parse_pattern_config
+from shape_match.features import extract_features
+from shape_match.image import to_bgr, to_gray
 
 logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger("web_app")
@@ -27,6 +27,8 @@ BASE_DIR = Path(__file__).resolve().parent
 ROOT_DIR = BASE_DIR.parent
 STATIC_DIR = BASE_DIR / "static"
 TEST_DATA_DIR = ROOT_DIR / "tests" / "data"
+if not TEST_DATA_DIR.exists():
+    TEST_DATA_DIR = BASE_DIR / "data"
 
 app = FastAPI(
     title="Shape-Based Matching Studio",
@@ -103,12 +105,14 @@ def filter_match_config(config: dict[str, Any] | None) -> dict[str, Any]:
 
 
 class ExtractRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     model_base64: str | None = None
     sample_id: str | None = None
     pat_config: dict[str, Any] = Field(default_factory=dict)
 
 
 class MatchRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     model_base64: str | None = None
     source_base64: str | None = None
     sample_id: str | None = None
@@ -277,9 +281,9 @@ async def extract_template(
                 }
             )
 
-        parsed_config = pattern_match._parse_pattern_config(pat_config)
-        features = pattern_match._extract_features(
-            pattern_match._to_gray(model), parsed_config, pattern_match._to_bgr(model)
+        parsed_config = parse_pattern_config(pat_config)
+        features = extract_features(
+            to_gray(model), parsed_config, to_bgr(model)
         )
         feature_count = len(features.points) if features is not None else 0
 
@@ -380,9 +384,9 @@ def extract_template_json(req: ExtractRequest) -> JSONResponse:
                 }
             )
 
-        parsed_config = pattern_match._parse_pattern_config(pat_config)
-        features = pattern_match._extract_features(
-            pattern_match._to_gray(model), parsed_config, pattern_match._to_bgr(model)
+        parsed_config = parse_pattern_config(pat_config)
+        features = extract_features(
+            to_gray(model), parsed_config, to_bgr(model)
         )
         feature_count = len(features.points) if features is not None else 0
 
@@ -413,7 +417,7 @@ def extract_template_json(req: ExtractRequest) -> JSONResponse:
 
 @app.post("/api/match")
 async def match_endpoint(
-    model_file: UploadFile | None = File(default=None),
+    template_file: UploadFile | None = File(default=None, alias="model_file"),
     source_file: UploadFile | None = File(default=None),
     pat_config_json: str = Form(default="{}"),
     match_config_json: str = Form(default="{}"),
@@ -421,10 +425,10 @@ async def match_endpoint(
     """Execute multi-instance shape-based matching."""
     started = time.perf_counter()
     try:
-        if model_file is None or source_file is None:
+        if template_file is None or source_file is None:
             raise HTTPException(status_code=400, detail="Both model_file and source_file must be uploaded")
 
-        model_bytes = await model_file.read()
+        model_bytes = await template_file.read()
         source_bytes = await source_file.read()
 
         model = decode_image_bytes(model_bytes)
