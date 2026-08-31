@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import base64
+import email
+import email.policy
 import json
 import logging
 from pathlib import Path
 import time
 from typing import Any, Mapping
+import urllib.parse
 
 import cv2
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -66,6 +69,49 @@ def encode_image_base64(image: np.ndarray, quality: int = 90) -> str:
         mime = "image/png"
     encoded = base64.b64encode(buffer).decode("utf-8")
     return f"data:{mime};base64,{encoded}"
+
+
+def parse_request_form_and_files(
+    content_type: str,
+    body: bytes,
+) -> tuple[dict[str, str], dict[str, bytes]]:
+    """Parse multipart/form-data and application/x-www-form-urlencoded request bodies without python-multipart."""
+    form_data: dict[str, str] = {}
+    files: dict[str, bytes] = {}
+
+    if not body:
+        return form_data, files
+
+    ct_lower = content_type.lower() if content_type else ""
+
+    if "multipart/form-data" in ct_lower:
+        header = f"Content-Type: {content_type}\r\n\r\n".encode("latin1")
+        msg = email.message_from_bytes(header + body, policy=email.policy.default)
+        if msg.is_multipart():
+            for part in msg.iter_parts():
+                cd = part.get("content-disposition", "")
+                name = part.get_param("name", header="content-disposition")
+                filename = part.get_filename()
+                payload = part.get_payload(decode=True)
+                if payload is None:
+                    continue
+
+                if filename is not None or (cd and "filename=" in cd):
+                    if name:
+                        files[name] = payload
+                else:
+                    if name:
+                        charset = part.get_content_charset() or "utf-8"
+                        try:
+                            form_data[name] = payload.decode(charset, errors="replace")
+                        except Exception:
+                            form_data[name] = payload.decode("utf-8", errors="replace")
+    elif "application/x-www-form-urlencoded" in ct_lower:
+        parsed = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"), keep_blank_values=True)
+        for k, v in parsed.items():
+            form_data[k] = v[0] if v else ""
+
+    return form_data, files
 
 
 _PAT_KEYS = set(PAT_DEFAULTS.keys())
@@ -245,19 +291,21 @@ def get_sample_images_endpoint(sample_id: str) -> JSONResponse:
 
 
 @app.post("/api/extract-template")
-async def extract_template(
-    file: UploadFile | None = File(default=None),
-    config_json: str = Form(default="{}"),
-) -> JSONResponse:
+async def extract_template(request: Request) -> JSONResponse:
     """Extract gradient-orientation shape features from uploaded template image."""
     started = time.perf_counter()
     try:
-        if file is not None:
-            image_bytes = await file.read()
-            model = decode_image_bytes(image_bytes)
-        else:
+        content_type = request.headers.get("content-type", "")
+        body = await request.body()
+        form_data, files = parse_request_form_and_files(content_type, body)
+
+        image_bytes = files.get("file") or files.get("model_file") or files.get("template_file")
+        if not image_bytes:
             raise HTTPException(status_code=400, detail="No template image provided")
 
+        model = decode_image_bytes(image_bytes)
+
+        config_json = form_data.get("config_json", "{}")
         try:
             raw_config = json.loads(config_json)
             pat_config = filter_pat_config(raw_config)
@@ -416,23 +464,25 @@ def extract_template_json(req: ExtractRequest) -> JSONResponse:
 
 
 @app.post("/api/match")
-async def match_endpoint(
-    template_file: UploadFile | None = File(default=None, alias="model_file"),
-    source_file: UploadFile | None = File(default=None),
-    pat_config_json: str = Form(default="{}"),
-    match_config_json: str = Form(default="{}"),
-) -> JSONResponse:
+async def match_endpoint(request: Request) -> JSONResponse:
     """Execute multi-instance shape-based matching."""
     started = time.perf_counter()
     try:
-        if template_file is None or source_file is None:
+        content_type = request.headers.get("content-type", "")
+        body = await request.body()
+        form_data, files = parse_request_form_and_files(content_type, body)
+
+        template_bytes = files.get("model_file") or files.get("template_file")
+        source_bytes = files.get("source_file") or files.get("src_file")
+
+        if template_bytes is None or source_bytes is None:
             raise HTTPException(status_code=400, detail="Both model_file and source_file must be uploaded")
 
-        model_bytes = await template_file.read()
-        source_bytes = await source_file.read()
-
-        model = decode_image_bytes(model_bytes)
+        model = decode_image_bytes(template_bytes)
         source = decode_image_bytes(source_bytes)
+
+        pat_config_json = form_data.get("pat_config_json", "{}")
+        match_config_json = form_data.get("match_config_json", "{}")
 
         pat_config = filter_pat_config(json.loads(pat_config_json))
         match_config = filter_match_config(json.loads(match_config_json))
